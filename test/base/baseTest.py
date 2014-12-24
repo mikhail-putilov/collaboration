@@ -1,7 +1,8 @@
 # coding=utf-8
-from twisted.internet.endpoints import connectProtocol, clientFromString, serverFromString
-from twisted.internet.protocol import ClientCreator, Factory
-from twisted.protocols.amp import AMP, CommandLocator, Command
+from twisted.internet import defer
+from twisted.internet.endpoints import clientFromString, serverFromString
+from twisted.internet.protocol import Factory
+from twisted.protocols.amp import AMP, CommandLocator, Command, String
 
 __author__ = 'snowy'
 
@@ -13,8 +14,8 @@ class GivenNotPingException(Exception):
 
 
 class PingPongCommand(Command):
-    arguments = [('ping', 'ping')]
-    response = [('pong', 'pong')]
+    arguments = [('ping', String())]
+    response = [('pong', String())]
 
 
 class PongLocator(CommandLocator):
@@ -30,17 +31,34 @@ class PongLocator(CommandLocator):
 
 
 class BaseTest(unittest.TestCase):
+    def save(self, key, value):
+        setattr(self, key, value)
+        return value
+
     def setUp(self):
         from twisted.internet import reactor
 
         self.reactor = reactor
         self.serverEndpoint = serverFromString(self.reactor, b"tcp:9879")
-        self.protocol = self.serverEndpoint.listen(Factory.forProtocol(AMP))
+        factory = Factory.forProtocol(lambda: AMP(locator=PingPongCommand()))
+        return self.serverEndpoint.listen(factory).addCallback(lambda p: self.save('serverPort', p))
 
     def testBasicCallback(self):
         """При отрправке сообщения Ping, должно возращаться сообщение Pong"""
+
+        def x(y):
+            return y.transport.loseConnection()
+
         clientEndpoint = clientFromString(self.reactor, b"tcp:host=localhost:port=9879")
-        self.protocol.addCallback(lambda ignore: connectProtocol(endpoint=clientEndpoint, protocol=AMP))
+        protocolFactory = Factory.forProtocol(AMP)
+        return clientEndpoint.connect(protocolFactory). \
+            addCallback(x)
+
+    def tearDown(self):
+        d = defer.maybeDeferred(self.serverPort.stopListening)
+        return defer.gatherResults([d,
+                                    self.clientDisconnected,
+                                    self.serverDisconnected])
 
 
 if __name__ == '__main__':
