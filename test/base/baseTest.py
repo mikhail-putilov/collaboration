@@ -24,7 +24,7 @@ class PongLocator(CommandLocator):
 
     @staticmethod
     @PingPongCommand.responder
-    def ping(ping):
+    def ping1(ping):
         if ping != "ping":
             raise GivenNotPingException()
         return "pong"

@@ -4,7 +4,7 @@ from twisted.internet.protocol import ClientFactory
 
 from twisted.protocols.amp import AMP
 
-from test.base.baseTest import PongLocator
+from test.base.baseTest import PongLocator, PingPongCommand
 
 
 __author__ = 'snowy'
@@ -75,6 +75,8 @@ class TestDisconnect(unittest.TestCase):
                                     self.serverDisconnected])
 
     def test_disconnect(self):
-        pass
+        def print_it(it):
+            print it
+        return self.clientProtocol.callRemote(PingPongCommand, ping='ping').addCallback(print_it)
 
 
