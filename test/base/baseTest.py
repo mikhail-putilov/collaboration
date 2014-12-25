@@ -16,18 +16,18 @@ class GivenNotPingException(Exception):
 class PingPongCommand(Command):
     arguments = [('ping', String())]
     response = [('pong', String())]
+    errors = {GivenNotPingException: 'GivenNotPingException'}
 
 
 class PongLocator(CommandLocator):
     def __init__(self):
         pass
 
-    @staticmethod
     @PingPongCommand.responder
-    def ping1(ping):
-        if ping != "ping":
+    def ping1(self, ping):
+        if ping != 'ping':
             raise GivenNotPingException()
-        return "pong"
+        return {'pong': 'pong'}
 
 
 class BaseTest(unittest.TestCase):
@@ -35,30 +35,42 @@ class BaseTest(unittest.TestCase):
         setattr(self, key, value)
         return value
 
+    def initServer(self):
+        """
+        Инициализация сервера
+        :return : defer.Deferred
+        """
+        self.serverEndpoint = serverFromString(self.reactor, b"tcp:9879")
+        factory = Factory.forProtocol(lambda: AMP(locator=PongLocator()))
+        savePort = lambda p: self.save('serverPort', p)  # given port
+        return self.serverEndpoint.listen(factory).addCallback(savePort)
+
+    def initClient(self):
+        """
+        Инициализация клиента
+        :return : defer.Deferred
+        """
+        clientEndpoint = clientFromString(self.reactor, b"tcp:host=localhost:port=9879")
+        protocolFactory = Factory.forProtocol(AMP)
+        saveProtocol = lambda p: self.save('clientProtocol', p)  # given protocol
+        return clientEndpoint.connect(protocolFactory).addCallback(saveProtocol)
+
     def setUp(self):
         from twisted.internet import reactor
 
         self.reactor = reactor
-        self.serverEndpoint = serverFromString(self.reactor, b"tcp:9879")
-        factory = Factory.forProtocol(lambda: AMP(locator=PingPongCommand()))
-        return self.serverEndpoint.listen(factory).addCallback(lambda p: self.save('serverPort', p))
-
-    def testBasicCallback(self):
-        """При отрправке сообщения Ping, должно возращаться сообщение Pong"""
-
-        def x(y):
-            return y.transport.loseConnection()
-
-        clientEndpoint = clientFromString(self.reactor, b"tcp:host=localhost:port=9879")
-        protocolFactory = Factory.forProtocol(AMP)
-        return clientEndpoint.connect(protocolFactory). \
-            addCallback(x)
+        serverDeferred = self.initServer()
+        return serverDeferred.addCallback(lambda ignore: self.initClient())
 
     def tearDown(self):
         d = defer.maybeDeferred(self.serverPort.stopListening)
-        return defer.gatherResults([d,
-                                    self.clientDisconnected,
-                                    self.serverDisconnected])
+        self.clientProtocol.transport.loseConnection()
+        return d
+
+    def test_a(self):
+        return self.clientProtocol.callRemote(PingPongCommand, ping='ping').addCallback(self.assertDictContainsSubset,
+                                                                                        {'pong': 'pong'},
+                                                                                        'Пришел не понг ответ')
 
 
 if __name__ == '__main__':

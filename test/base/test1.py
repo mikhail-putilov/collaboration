@@ -1,7 +1,6 @@
 # coding=utf-8
 from twisted.internet.endpoints import clientFromString
 from twisted.internet.protocol import ClientFactory
-
 from twisted.protocols.amp import AMP
 
 from test.base.baseTest import PongLocator, PingPongCommand
@@ -37,12 +36,13 @@ class TestDisconnect(unittest.TestCase):
         from twisted.internet import reactor
 
         self.reactor = reactor
-        """:type reactor: twisted.internet.selectreactor.SelectReactor"""
+        ":type reactor: twisted.internet.selectreactor.SelectReactor"
 
         self.serverDisconnected = defer.Deferred()
         self.serverPort = self._listenServer(self.serverDisconnected)
         self.clientDisconnected = defer.Deferred()
-        return self._connectClient(self.clientDisconnected).addCallback(lambda proto: self.save("clientProtocol", proto))
+        return self._connectClient(self.clientDisconnected).addCallback(
+            lambda proto: self.save("clientProtocol", proto))
 
     def _listenServer(self, d):
         """
@@ -77,6 +77,7 @@ class TestDisconnect(unittest.TestCase):
     def test_disconnect(self):
         def print_it(it):
             print it
+
         return self.clientProtocol.callRemote(PingPongCommand, ping='ping').addCallback(print_it)
 
 
