@@ -1,4 +1,7 @@
 # coding=utf-8
+"""
+Пинг-понг тест с использованием endpoints
+"""
 from twisted.internet import defer
 from twisted.internet.endpoints import clientFromString, serverFromString
 from twisted.internet.protocol import Factory

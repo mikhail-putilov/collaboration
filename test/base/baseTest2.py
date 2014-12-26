@@ -1,9 +1,12 @@
 # coding=utf-8
+"""
+Пинг-понг тест с использованием callbacks
+"""
 from twisted.internet.endpoints import clientFromString
 from twisted.internet.protocol import ClientFactory
 from twisted.protocols.amp import AMP
 
-from test.base.baseTest import PongLocator, PingPongCommand
+from test.base.baseTest1 import PongLocator, PingPongCommand
 
 
 __author__ = 'snowy'
