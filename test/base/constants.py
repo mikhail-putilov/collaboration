@@ -36,14 +36,14 @@ Hamlet: Or like a whale?
 Polonius: Very like a whale.
 -- Shakespeare"""
 textVersionSeq = [initialText, textVer1, textVer2, textVer3, textVer4]
-patchedText = """Hamlet: Do you see the cloud over there that's almost the shape of a camel?
+patchedText = u"""Hamlet: Do you see the cloud over there that's almost the shape of a camel?
 Polonius: By golly, it is like a camel, indeed.
 Hamlet: I think it looks like a weasel.
 Polonius: It is shaped like a weasel.
 Hamlet: Or like a whale?
 Polonius: It's totally like a whale.
 -- Shakespeare"""
-patch = """@@ -16,21 +16,29 @@
+patch = u"""@@ -16,21 +16,29 @@
  see
 -yonder
 +the
