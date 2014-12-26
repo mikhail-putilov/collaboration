@@ -38,17 +38,17 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         self.dmp = diff_match_patch()
 
     @property
-    def text(self):
+    def local_text(self):
         return self.currentText
 
-    def setText(self, text):
+    def local_setText(self, text):
         """
         Заменить текущий текст без сайд-эффектов
         :param text: str
         """
         self.currentText = text
 
-    def onTextChanged(self, nextText):
+    def local_onTextChanged(self, nextText):
         """
         Установить текст, посчитать дельту, отправить всем участникам сети патч
         :param nextText: текст, который является более новой версией текущего текст self.currentText
@@ -58,7 +58,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
 
     @ApplyPatchCommand.responder
-    def applyRemotePatch(self, patch):
+    def remote_applyPatch(self, patch):
         _patch = self.dmp.patch_fromText(patch)
         patchedText, result = self.dmp.patch_apply(_patch, self.currentText)
         if False in result:
@@ -67,7 +67,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         return {'succeed': True}
 
     @GetTextCommand.responder
-    def getTextRemote(self):
-        if self.text is None:
+    def remote_getText(self):
+        if self.local_text is None:
             raise NoTextAvailableException()
-        return {'text': self.text}
+        return {'text': self.local_text}

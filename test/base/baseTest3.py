@@ -62,7 +62,7 @@ class BaseTest(unittest.TestCase):
         # emulate editing text
         d = defer.succeed(None)
         for newTextVersion in constants.textVersionSeq[1:]:
-            d = d.addCallback(lambda ignore: alg.onTextChanged(newTextVersion)) \
+            d = d.addCallback(lambda ignore: alg.local_onTextChanged(newTextVersion)) \
                 .addCallback(self.assertTrue, msg='Патчи textVersionSeq должены примениться на сервере')
 
         def checkResult(ignore):
