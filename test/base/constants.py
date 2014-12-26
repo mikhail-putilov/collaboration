@@ -1,11 +1,41 @@
+# coding=utf-8
 __author__ = 'snowy'
-initialText = """Hamlet: Do you see yonder cloud that's almost in shape of a camel?
+initialText = u"""Hamlet: Do you see yonder cloud that's almost in shape of a camel?
 Polonius: By the mass, and 'tis like a camel, indeed.
 Hamlet: Methinks it is like a weasel.
 Polonius: It is backed like a weasel.
 Hamlet: Or like a whale?
 Polonius: Very like a whale.
 -- Shakespeare"""
+textVer1 = u"""Гамл: Do you see yonder cloud that's almost in shape of a camel?
+Polonius: By the mass, and 'tis like a camel, indeed.
+Hamlet: Methinks it is like a weasel.
+Polonius: It is backed like a weasel.
+Hamlet: Or like a whale?
+Polonius: Very like a whale.
+-- Shakespeare"""
+textVer2 = u"""Гамлет: что ты видишь yonder cloud that's almost in shape of a camel?
+Polonius: By the mass, and 'tis like a camel, indeed.
+Hamlet: Methinks it is like a weasel.
+Polonius: It is backed like a weasel.
+Hamlet: Or like a whale?
+Polonius: Very like a whale.
+-- Shakespeare"""
+textVer3 = u"""Гамлет: что ты видишь облачко, которое почin shape of a camel?
+Polonius: By the mass, and 'tis like a camel, indeed.
+Hamlet: Methinks it is like a weasel.
+Polonius: It is backed like a weasel.
+Hamlet: Or like a whale?
+Polonius: Very like a whale.
+-- Shakespeare"""
+textVer4 = u"""Гамлет: что ты видишь облачко, которое почти как верблюд?
+Polonius: By the mass, and 'tis like a camel, indeed.
+Hamlet: Methinks it is like a weasel.
+Polonius: It is backed like a weasel.
+Hamlet: Or like a whale?
+Polonius: Very like a whale.
+-- Shakespeare"""
+textVersionSeq = [initialText, textVer1, textVer2, textVer3, textVer4]
 patchedText = """Hamlet: Do you see the cloud over there that's almost the shape of a camel?
 Polonius: By golly, it is like a camel, indeed.
 Hamlet: I think it looks like a weasel.

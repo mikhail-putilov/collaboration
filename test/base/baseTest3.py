@@ -1,39 +1,84 @@
 # coding=utf-8
 """
-Тест на что-то
+Тесты на основную функциональность
 """
 from twisted.internet import defer
 from twisted.internet.endpoints import clientFromString, serverFromString
 from twisted.internet.protocol import Factory
-from twisted.protocols.amp import AMP, CommandLocator, Command, String, Boolean
+from twisted.protocols.amp import AMP, CommandLocator, Command, Boolean, Unicode
 from twisted.trial import unittest
+
+from libs.dmp import diff_match_patch
 import test.base.constants as constants
+
 
 __author__ = 'snowy'
 
 
-def PatchIsNotApplicable(Exception):
+class Patch(Unicode):
     pass
 
 
-class Patch(String):
+class NoTextAvailableException(Exception):
     pass
+
+
+def PatchIsNotApplicableException(Exception):
+    pass
+
+
+class GetTextCommand(Command):
+    response = [('text', Unicode())]
+    errors = {NoTextAvailableException: 'Невозможно получить текст'}
 
 
 class ApplyPatchCommand(Command):
     arguments = [('patch', Patch())]
     response = [('succeed', Boolean())]
-    errors = {PatchIsNotApplicable: 'PatchIsNotApplicable, maybe try one more time'}
+    errors = {PatchIsNotApplicableException: 'Патч не может быть применен'}
 
 
 class DiffMatchPatchAlgorithm(CommandLocator):
+    clientProtocol = None
+
     def __init__(self, initialText):
-        self.initialText = initialText
+        self.currentText = initialText
+        self.dmp = diff_match_patch()
+
+    @property
+    def text(self):
+        return self.currentText
+
+    def setText(self, text):
+        """
+        Заменить текущий текст без сайд-эффектов
+        :param text: str
+        """
+        self.currentText = text
+
+    def onTextChanged(self, nextText):
+        """
+        Установить текст, посчитать дельту, отправить всем участникам сети патч
+        :param nextText: текст, который является более новой версией текущего текст self.currentText
+        """
+        patches = self.dmp.patch_make(self.currentText, nextText)
+        serialized = self.dmp.patch_toText(patches)
+        return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
 
     @ApplyPatchCommand.responder
     def applyRemotePatch(self, patch):
-        
+        _patch = self.dmp.patch_fromText(patch)
+        patchedText, result = self.dmp.patch_apply(_patch, self.currentText)
+        if False in result:
+            return {'succeed': False}
+        self.currentText = patchedText
         return {'succeed': True}
+
+    @GetTextCommand.responder
+    def getTextRemote(self):
+        if self.text is None:
+            raise NoTextAvailableException()
+        return {'text': self.text}
 
 
 class BaseTest(unittest.TestCase):
@@ -73,9 +118,28 @@ class BaseTest(unittest.TestCase):
         self.clientProtocol.transport.loseConnection()
         return d
 
-    def test_base(self):
-        return self.clientProtocol.callRemote(ApplyPatchCommand, patch=constants.patch) \
-            .addCallback(self.assertTrue, msg='Патч не может быть применен')
+    def test_sequential(self):
+        """
+        Тестирование последовательного изменения текста с блокировками (пока не будет применены изменения на сервере,
+        клиент ждет)
+        """
+        alg = DiffMatchPatchAlgorithm(constants.textVersionSeq[0])
+        alg.clientProtocol = self.clientProtocol
+        # emulate editing text
+        d = defer.succeed(None)
+        for newTextVersion in constants.textVersionSeq[1:]:
+            d = d.addCallback(lambda ignore: alg.onTextChanged(newTextVersion)) \
+                .addCallback(self.assertTrue, msg='Патчи textVersionSeq должены примениться на сервере')
+
+        def checkResult(ignore):
+            return self.clientProtocol \
+                .callRemote(GetTextCommand) \
+                .addCallback(self.assertDictContainsSubset,
+                             {'text': constants.textVersionSeq[-1]},
+                             msg='Результат применения патчей на сервере должен привести '
+                                 'к тому же состоянию текста textVersionSeq[-1]')
+
+        return d.addCallback(checkResult)
 
 
 if __name__ == '__main__':
