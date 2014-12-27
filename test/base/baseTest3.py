@@ -7,7 +7,7 @@ from twisted.internet.endpoints import clientFromString, serverFromString
 from twisted.internet.protocol import Factory
 from twisted.protocols.amp import AMP
 from twisted.trial import unittest
-from core.core import DiffMatchPatchAlgorithm, GetTextCommand
+from core.core import DiffMatchPatchAlgorithm, GetTextCommand, save
 
 import test.base.constants as constants
 
@@ -16,10 +16,6 @@ __author__ = 'snowy'
 
 
 class BaseTest(unittest.TestCase):
-    def save(self, key, value):
-        setattr(self, key, value)
-        return value
-
     def initServer(self):
         """
         Инициализация сервера
@@ -27,7 +23,7 @@ class BaseTest(unittest.TestCase):
         """
         self.serverEndpoint = serverFromString(self.reactor, b"tcp:9879")
         factory = Factory.forProtocol(lambda: AMP(locator=DiffMatchPatchAlgorithm(constants.initialText)))
-        savePort = lambda p: self.save('serverPort', p)  # given port
+        savePort = lambda p: save(self, 'serverPort', p)  # given port
         return self.serverEndpoint.listen(factory).addCallback(savePort)
 
     def initClient(self):
@@ -37,7 +33,7 @@ class BaseTest(unittest.TestCase):
         """
         clientEndpoint = clientFromString(self.reactor, b"tcp:host=localhost:port=9879")
         protocolFactory = Factory.forProtocol(AMP)
-        saveProtocol = lambda p: self.save('clientProtocol', p)  # given protocol
+        saveProtocol = lambda p: save(self, 'clientProtocol', p)  # given protocol
         return clientEndpoint.connect(protocolFactory).addCallback(saveProtocol)
 
     def setUp(self):
