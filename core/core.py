@@ -15,7 +15,7 @@ class NoTextAvailableException(Exception):
     pass
 
 
-def PatchIsNotApplicableException(Exception):
+def PatchIsNotApplicableException():
     pass
 
 
@@ -51,7 +51,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
     def local_onTextChanged(self, nextText):
         """
         Установить текст, посчитать дельту, отправить всем участникам сети патч
-        :param nextText: текст, который является более новой версией текущего текст self.currentText
+        :param nextText: str текст, который является более новой версией текущего текст self.currentText
         """
         patches = self.dmp.patch_make(self.currentText, nextText)
         serialized = self.dmp.patch_toText(patches)
