@@ -90,7 +90,13 @@ class NetworkApplicationConfig(object):
         :param clientConnString: str строка подключения для clientFromString
         """
         self.clientConnString = clientConnString
+        ":type clientConnString: str"
         self.serverConnString = serverConnString
+        ":type serverConnString: str"
+
+    def appendClientPort(self, port):
+        self.clientConnString += ':{0}'.format(port)
+        return self
 
 
 class Application(object):
@@ -103,6 +109,15 @@ class Application(object):
         self.serverPort = None
         self.clientProtocol = None
         self.locator = DiffMatchPatchAlgorithm(clientProtocol=self.clientProtocol)
+
+    @property
+    def algorithm(self):
+        """
+        Основной алгоритм, который реагирует на изменения текста
+        отправляет данные другим участникам и пр.
+        :return: DiffMatchPatchAlgorithm
+        """
+        return self.locator
 
     def _initServer(self, locator, serverConnString):
         """
@@ -126,15 +141,21 @@ class Application(object):
         self.clientFactory = ClientFactory.forProtocol(AMP)
         return clientEndpoint.connect(self.clientFactory).addCallback(saveProtocol)
 
-    def setUp(self, cfg):
+    def setUpServer(self, cfg):
         """
-        Инициализировать сервер и клиент
-        :type cfg: NetworkApplicationConfig конфиг сети
+        Установить сервер, который будет слушать порт из cfg
+        :param cfg: NetworkApplicationConfig
         :rtype : defer.Deferred
         """
-        serverInitialized = self._initServer(self.locator, cfg.serverConnString)
-        clientInitialized = self._initClient(cfg.clientConnString)
-        return defer.gatherResults([serverInitialized, clientInitialized])
+        return self._initServer(self.locator, cfg.serverConnString)
+
+    def setUpClient(self, cfg):
+        """
+        Установить клиента, который будет подключаться по порту из cfg
+        :param cfg: NetworkApplicationConfig
+        :rtype : defer.Deferred
+        """
+        return self._initClient(cfg.clientConnString)
 
     def tearDown(self):
         d = defer.maybeDeferred(self.serverPort.stopListening)
