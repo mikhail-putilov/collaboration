@@ -21,7 +21,7 @@ class BaseTest(unittest.TestCase):
         Инициализация сервера
         :return : defer.Deferred
         """
-        self.serverEndpoint = serverFromString(self.reactor, b"tcp:9879")
+        self.serverEndpoint = serverFromString(self.reactor, b'tcp:9879')
         factory = Factory.forProtocol(lambda: AMP(locator=DiffMatchPatchAlgorithm(constants.initialText)))
         savePort = lambda p: save(self, 'serverPort', p)  # given port
         return self.serverEndpoint.listen(factory).addCallback(savePort)
@@ -31,7 +31,7 @@ class BaseTest(unittest.TestCase):
         Инициализация клиента
         :return : defer.Deferred
         """
-        clientEndpoint = clientFromString(self.reactor, b"tcp:host=localhost:port=9879")
+        clientEndpoint = clientFromString(self.reactor, b'tcp:host=localhost:port=9879')
         protocolFactory = Factory.forProtocol(AMP)
         saveProtocol = lambda p: save(self, 'clientProtocol', p)  # given protocol
         return clientEndpoint.connect(protocolFactory).addCallback(saveProtocol)

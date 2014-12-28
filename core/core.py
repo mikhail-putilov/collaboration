@@ -40,9 +40,8 @@ class ApplyPatchCommand(Command):
 
 
 class DiffMatchPatchAlgorithm(CommandLocator):
-    clientProtocol = None
-
-    def __init__(self, initialText=''):
+    def __init__(self, initialText='', clientProtocol=None):
+        self.clientProtocol = clientProtocol
         self.currentText = initialText
         self.dmp = diff_match_patch()
 
@@ -50,7 +49,8 @@ class DiffMatchPatchAlgorithm(CommandLocator):
     def local_text(self):
         return self.currentText
 
-    def local_setText(self, text):
+    @local_text.setter
+    def local_text(self, text):
         """
         Заменить текущий текст без сайд-эффектов
         :param text: str
@@ -96,13 +96,13 @@ class NetworkApplicationConfig(object):
 class Application(object):
     def __init__(self, reactor):
         self.reactor = reactor
-        self.locator = DiffMatchPatchAlgorithm()
         # заполняются после setUp():
         self.serverEndpoint = None
         self.serverFactory = None
         self.clientFactory = None
         self.serverPort = None
         self.clientProtocol = None
+        self.locator = DiffMatchPatchAlgorithm(clientProtocol=self.clientProtocol)
 
     def _initServer(self, locator, serverConnString):
         """
