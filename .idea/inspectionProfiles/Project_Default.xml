@@ -8,6 +8,7 @@
         <list>
           <option value="twisted.trial.unittest.main" />
           <option value="twisted.internet.reactor.run" />
+          <option value="twisted.internet.reactor.callLater" />
         </list>
       </option>
     </inspection_tool>

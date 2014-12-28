@@ -20,12 +20,14 @@ class Patch(Unicode):
     pass
 
 
-class NoTextAvailableException(Exception):
-    pass
+class NoTextAvailableException:
+    def __init__(self):
+        pass
 
 
-def PatchIsNotApplicableException():
-    pass
+class PatchIsNotApplicableException:
+    def __init__(self):
+        pass
 
 
 class GetTextCommand(Command):
@@ -40,7 +42,8 @@ class ApplyPatchCommand(Command):
 
 
 class DiffMatchPatchAlgorithm(CommandLocator):
-    def __init__(self, initialText='', clientProtocol=None):
+    def __init__(self, initialText='', clientProtocol=None, name=''):
+        self.name = name
         self.clientProtocol = clientProtocol
         self.currentText = initialText
         self.dmp = diff_match_patch()
@@ -62,16 +65,18 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         Установить текст, посчитать дельту, отправить всем участникам сети патч
         :param nextText: str текст, который является более новой версией текущего текст self.currentText
         """
+        print 'local_onTextChanged', self.name
         patches = self.dmp.patch_make(self.currentText, nextText)
         serialized = self.dmp.patch_toText(patches)
         return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
+        print 'remote_apply:', self.name
         _patch = self.dmp.patch_fromText(patch)
         patchedText, result = self.dmp.patch_apply(_patch, self.currentText)
         if False in result:
-            return {'succeed': False}
+            raise PatchIsNotApplicableException()
         self.currentText = patchedText
         return {'succeed': True}
 
@@ -95,20 +100,21 @@ class NetworkApplicationConfig(object):
         ":type serverConnString: str"
 
     def appendClientPort(self, port):
-        self.clientConnString += ':{0}'.format(port)
+        self.clientConnString += ':port={0}'.format(port)
         return self
 
 
 class Application(object):
-    def __init__(self, reactor):
+    def __init__(self, reactor, name=''):
         self.reactor = reactor
+        self.name = name
         # заполняются после setUp():
         self.serverEndpoint = None
         self.serverFactory = None
         self.clientFactory = None
         self.serverPort = None
         self.clientProtocol = None
-        self.locator = DiffMatchPatchAlgorithm(clientProtocol=self.clientProtocol)
+        self.locator = DiffMatchPatchAlgorithm(clientProtocol=self.clientProtocol, name=name)
 
     @property
     def algorithm(self):
@@ -139,7 +145,11 @@ class Application(object):
         clientEndpoint = clientFromString(self.reactor, clientConnString)
         saveProtocol = lambda p: save(self, 'clientProtocol', p)  # given protocol
         self.clientFactory = ClientFactory.forProtocol(AMP)
-        return clientEndpoint.connect(self.clientFactory).addCallback(saveProtocol)
+        return clientEndpoint.connect(self.clientFactory).addCallback(saveProtocol).addCallback(self.setClientProtocol)
+
+    def setClientProtocol(self, proto):
+        self.locator.clientProtocol = proto
+        return proto
 
     def setUpServer(self, cfg):
         """
