@@ -7,25 +7,26 @@ from core.core import NetworkApplicationConfig, Application
 __author__ = 'snowy'
 
 
-def init():
-    cfg1 = NetworkApplicationConfig(serverConnString=b'tcp:0',
-                                    clientConnString=b'tcp:host=localhost')
-    cfg2 = NetworkApplicationConfig(serverConnString=b'tcp:0',
-                                    clientConnString=b'tcp:host=localhost')
-    app1 = Application(reactor)
-    app2 = Application(reactor)
-    app1.algorithm.local_text = app2.algorithm.local_text = 'initialText'
-
-    # create app1server and app2client
-    app1.setUpServer(cfg1) \
-        .addCallback(lambda listeningPort: cfg2.appendClientPort(listeningPort.getHost().port)) \
-        .addCallback(lambda _cfg2: app2.setUpClient(_cfg2))
-
-    # create app2server and app1client
-    app2.setUpServer(cfg2) \
-        .addCallback(lambda listeningPort: cfg1.appendClientPort(listeningPort.getHost().port)) \
-        .addCallback(lambda _cfg1: app2.setUpClient(_cfg1))
+def print_it(arg):
+    print arg
+    return arg
 
 
-init()
+app = Application(reactor)
+
+
+def initServer():
+    cfg = NetworkApplicationConfig(serverConnString=b'tcp:0')
+
+    return app.setUpServer(cfg) \
+        .addCallback(lambda listeningPort: listeningPort.getHost().port) \
+        .addCallback(print_it)
+
+
+def initClient(port):
+    cfg = NetworkApplicationConfig(clientConnString=b'tcp:host=localhost:{0}'.format(port))
+    return app.setUpClient(cfg)
+
+
+initServer()
 reactor.run()
