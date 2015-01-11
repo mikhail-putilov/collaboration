@@ -1,36 +1,27 @@
 # coding=utf-8
-from twisted.internet import reactor
-
-from core.core import NetworkApplicationConfig, Application
 
 
-__author__ = 'snowy'
+# __author__ = 'snowy'
+
+# from twisted.internet import stdio
+# from twisted.protocols import basic
 
 
-def print_it(arg):
-    print arg
-    return arg
+# class SublimeTextEmulator(basic.LineReceiver):
+#     def connectionMade(self):
+#         self.transport.write('>>> ')
+
+#     def lineReceived(self, line):
+#         self.sendLine('Echo: ' + line)
+#         self.transport.write('>>> ')
 
 
-def main():
-    global print_it, app, initServer, initClient
+# def main():
+#     stdio.StandardIO(SublimeTextEmulator())
+#     from twisted.internet import reactor
 
-    app = Application(reactor)
-
-    def initServer():
-        cfg = NetworkApplicationConfig(serverConnString=b'tcp:0')
-
-        return app.setUpServer(cfg) \
-            .addCallback(lambda listeningPort: listeningPort.getHost().port) \
-            .addCallback(print_it)
-
-    def initClient(port):
-        cfg = NetworkApplicationConfig(clientConnString=b'tcp:host=localhost:{0}'.format(port))
-        return app.setUpClient(cfg)
-
-    initServer()
-    reactor.run()
+#     reactor.run()
 
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()

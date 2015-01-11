@@ -11,6 +11,11 @@ from libs.dmp import diff_match_patch
 __author__ = 'snowy'
 
 
+def print_it(arg):
+    print arg
+    return arg
+
+
 def save(self, key, value):
     setattr(self, key, value)
     return value
@@ -104,6 +109,10 @@ class NetworkApplicationConfig(object):
         return self
 
 
+class ServerPortIsNotInitializedError(Exception):
+    pass
+
+
 class Application(object):
     def __init__(self, reactor, name=''):
         self.reactor = reactor
@@ -115,6 +124,12 @@ class Application(object):
         self.serverPort = None
         self.clientProtocol = None
         self.locator = DiffMatchPatchAlgorithm(clientProtocol=self.clientProtocol, name=name)
+
+    @property
+    def serverPortNumber(self):
+        if self.serverPort is None:
+            raise ServerPortIsNotInitializedError()
+        return self.serverPort.getHost().port
 
     @property
     def algorithm(self):
