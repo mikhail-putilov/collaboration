@@ -7,9 +7,6 @@ from core.core import NetworkApplicationConfig, Application
 
 __author__ = 'snowy'
 
-app1 = Application(reactor, 'app1')
-app2 = Application(reactor, 'app2')
-
 
 def init():
     cfg1 = NetworkApplicationConfig(serverConnString=b'tcp:0',
@@ -19,17 +16,14 @@ def init():
 
     # create app1server and app2client
     d1 = app1.setUpServer(cfg1) \
-        .addCallback(lambda listeningPort: cfg2.appendClientPort(listeningPort.getHost().port)) \
-        .addCallback(lambda _cfg2: app2.setUpClient(_cfg2))
+        .addCallback(lambda ignore: cfg2.appendClientPort(app1.serverPortNumber)) \
+        .addCallback(lambda ignore: app2.setUpClient(cfg2))
 
     # create app2server and app1client
     d2 = app2.setUpServer(cfg2) \
-        .addCallback(lambda listeningPort: cfg1.appendClientPort(listeningPort.getHost().port)) \
-        .addCallback(lambda _cfg1: app1.setUpClient(_cfg1))
+        .addCallback(lambda ignore: cfg1.appendClientPort(app2.serverPortNumber)) \
+        .addCallback(lambda ignore: app1.setUpClient(cfg1))
     return gatherResults([d1, d2])
-
-
-textVersions = ['ver', 'v', 'vrso1', 'version1viva']
 
 
 def text_changed(app, text):
@@ -61,7 +55,16 @@ def test(ignore):
     reactor.callLater(6, pretty_print, app2, '\napp2:')
 
 
-d = init()
-d.addCallback(test)
+app1 = Application(reactor, 'app1')
+app2 = Application(reactor, 'app2')
+textVersions = ['ver', 'v', 'vrso1', 'version1viva']
 
-reactor.run()
+
+def main():
+    d = init()
+    d.addCallback(test)
+    reactor.run()
+
+
+if __name__ == '__main__':
+    main()
