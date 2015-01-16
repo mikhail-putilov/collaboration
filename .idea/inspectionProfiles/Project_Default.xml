@@ -9,6 +9,8 @@
           <option value="twisted.trial.unittest.main" />
           <option value="twisted.internet.reactor.run" />
           <option value="twisted.internet.reactor.callLater" />
+          <option value="sublime_plugin" />
+          <option value="core.core.reactor" />
         </list>
       </option>
     </inspection_tool>

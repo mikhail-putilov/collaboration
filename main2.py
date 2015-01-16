@@ -15,14 +15,14 @@ def init():
                                     clientConnString=b'tcp:host=localhost')
 
     # create app1server and app2client
-    d1 = app1.setUpServer(cfg1) \
+    d1 = app1.setUpServerFromCfg(cfg1) \
         .addCallback(lambda ignore: cfg2.appendClientPort(app1.serverPortNumber)) \
-        .addCallback(lambda ignore: app2.setUpClient(cfg2))
+        .addCallback(lambda ignore: app2.setUpClientFromCfg(cfg2))
 
     # create app2server and app1client
-    d2 = app2.setUpServer(cfg2) \
+    d2 = app2.setUpServerFromCfg(cfg2) \
         .addCallback(lambda ignore: cfg1.appendClientPort(app2.serverPortNumber)) \
-        .addCallback(lambda ignore: app1.setUpClient(cfg1))
+        .addCallback(lambda ignore: app1.setUpClientFromCfg(cfg1))
     return gatherResults([d1, d2])
 
 

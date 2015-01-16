@@ -73,7 +73,8 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         print 'local_onTextChanged', self.name
         patches = self.dmp.patch_make(self.currentText, nextText)
         serialized = self.dmp.patch_toText(patches)
-        return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
+        if self.clientProtocol is not None:
+            self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
@@ -111,6 +112,33 @@ class NetworkApplicationConfig(object):
 
 class ServerPortIsNotInitializedError(Exception):
     pass
+
+
+#
+#
+# import sublime_plugin
+# from random import randint
+#
+#
+# class RunApplicationCommand(sublime_plugin.TextCommand):
+# def __init__(self, view):
+# self.reactor = reactor
+# self.app = Application(self.reactor, name='default-name{0}'.format(randint(1, 20)))
+#         self.cfg = NetworkApplicationConfig(serverConnString=b'tcp:0',
+#                                             clientConnString=None)
+#
+#         def _cb(clientConnString):
+#             self.cfg.clientConnString = clientConnString
+#             print "fug u lemonardo: {0}".format(clientConnString)
+#
+#         self.app.setUpServerFromStr(self.cfg.serverConnString).addCallback(_cb)
+#
+#     def run(self, edit):
+#         """
+#         Начальная инициализация серверной части пира.
+#         :return: Application
+#         """
+#         pass
 
 
 class Application(object):
@@ -155,7 +183,7 @@ class Application(object):
         """
         Инициализация клиента
         :type clientConnString: str строка подключения для clientFromString
-        :return : defer.Deferred
+        :return : defer.Deferred с аргументом self.clientProtocol
         """
         clientEndpoint = clientFromString(self.reactor, clientConnString)
         saveProtocol = lambda p: save(self, 'clientProtocol', p)  # given protocol
@@ -166,7 +194,7 @@ class Application(object):
         self.locator.clientProtocol = proto
         return proto
 
-    def setUpServer(self, cfg):
+    def setUpServerFromCfg(self, cfg):
         """
         Установить сервер, который будет слушать порт из cfg
         :param cfg: NetworkApplicationConfig
@@ -174,15 +202,38 @@ class Application(object):
         """
         return self._initServer(self.locator, cfg.serverConnString)
 
-    def setUpClient(self, cfg):
+    def setUpServerFromStr(self, serverConnString):
+        """
+        Установить сервер, который будет слушать порт из cfg
+        :param serverConnString: str
+        :rtype : defer.Deferred с результатом b'tcp:host=localhost:port={0}' где port = который слушает сервер
+        """
+        return self._initServer(self.locator, serverConnString) \
+            .addCallback(lambda sPort: b'tcp:host=localhost:port={0}'.format(sPort.getHost().port))
+
+    def connectAsClientFromStr(self, clientConnString):
+        """
+        Подключиться как клиент по заданной строке
+        :param clientConnString: str
+        :rtype : defer.Deferred с аргументом self.clientProtocol
+        """
+        return self._initClient(clientConnString)
+
+    def setUpClientFromCfg(self, cfg):
         """
         Установить клиента, который будет подключаться по порту из cfg
         :param cfg: NetworkApplicationConfig
-        :rtype : defer.Deferred
+        :rtype : defer.Deferred с аргументом self.clientProtocol
         """
         return self._initClient(cfg.clientConnString)
 
+    def __del__(self):
+        self.tearDown()
+
     def tearDown(self):
-        d = defer.maybeDeferred(self.serverPort.stopListening)
-        self.clientProtocol.transport.loseConnection()
+        d = defer.succeed(None)
+        if self.serverPort is not None:
+            d = defer.maybeDeferred(self.serverPort.stopListening)
+        if self.clientProtocol:
+            self.clientProtocol.transport.loseConnection()
         return d
