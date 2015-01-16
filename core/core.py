@@ -43,6 +43,7 @@ class GetTextCommand(Command):
 class ApplyPatchCommand(Command):
     arguments = [('patch', Patch())]
     response = [('succeed', Boolean())]
+    default_succeed_response = defer.succeed(True)
     errors = {PatchIsNotApplicableException: 'Патч не может быть применен'}
 
 
@@ -76,7 +77,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         serialized = self.dmp.patch_toText(patches)
         if self.clientProtocol is not None:
             self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
-        return defer.succeed(True)
+        return ApplyPatchCommand.default_succeed_response
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
@@ -184,7 +185,7 @@ class Application(object):
         :rtype : defer.Deferred с результатом 'tcp:host=localhost:port={0}' где port = который слушает сервер
         """
         return self._initServer(self.locator, serverConnString) \
-            .addCallback(lambda sPort: b'tcp:host=localhost:port={0}'.format(sPort.getHost().port))
+            .addCallback(lambda sPort: 'tcp:host=localhost:port={0}'.format(sPort.getHost().port))
 
     def connectAsClientFromStr(self, clientConnString):
         """
