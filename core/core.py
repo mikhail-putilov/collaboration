@@ -68,6 +68,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
     def local_onTextChanged(self, nextText):
         """
         Установить текст, посчитать дельту, отправить всем участникам сети патч
+        :rtype : defer.Deferred с результатом команды ApplyPatchCommand
         :param nextText: str текст, который является более новой версией текущего текст self.currentText
         """
         print 'local_onTextChanged', self.name
@@ -75,6 +76,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         serialized = self.dmp.patch_toText(patches)
         if self.clientProtocol is not None:
             self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
+        return defer.succeed(True)
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
@@ -112,33 +114,6 @@ class NetworkApplicationConfig(object):
 
 class ServerPortIsNotInitializedError(Exception):
     pass
-
-
-#
-#
-# import sublime_plugin
-# from random import randint
-#
-#
-# class RunApplicationCommand(sublime_plugin.TextCommand):
-# def __init__(self, view):
-# self.reactor = reactor
-# self.app = Application(self.reactor, name='default-name{0}'.format(randint(1, 20)))
-#         self.cfg = NetworkApplicationConfig(serverConnString=b'tcp:0',
-#                                             clientConnString=None)
-#
-#         def _cb(clientConnString):
-#             self.cfg.clientConnString = clientConnString
-#             print "fug u lemonardo: {0}".format(clientConnString)
-#
-#         self.app.setUpServerFromStr(self.cfg.serverConnString).addCallback(_cb)
-#
-#     def run(self, edit):
-#         """
-#         Начальная инициализация серверной части пира.
-#         :return: Application
-#         """
-#         pass
 
 
 class Application(object):
@@ -206,7 +181,7 @@ class Application(object):
         """
         Установить сервер, который будет слушать порт из cfg
         :param serverConnString: str
-        :rtype : defer.Deferred с результатом b'tcp:host=localhost:port={0}' где port = который слушает сервер
+        :rtype : defer.Deferred с результатом 'tcp:host=localhost:port={0}' где port = который слушает сервер
         """
         return self._initServer(self.locator, serverConnString) \
             .addCallback(lambda sPort: b'tcp:host=localhost:port={0}'.format(sPort.getHost().port))
