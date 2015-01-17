@@ -6,6 +6,7 @@ from twisted.internet.protocol import Factory, ClientFactory
 from twisted.protocols.amp import AMP
 
 from libs.dmp import diff_match_patch
+from libs.twisted.python import log
 
 
 __author__ = 'snowy'
@@ -48,11 +49,12 @@ class ApplyPatchCommand(Command):
 
 
 class DiffMatchPatchAlgorithm(CommandLocator):
-    def __init__(self, initialText='', clientProtocol=None, name=''):
+    def __init__(self, initialText='', clientProtocol=None, name='', view=None):
         self.name = name
         self.clientProtocol = clientProtocol
         self.currentText = initialText
         self.dmp = diff_match_patch()
+        self.view = view
 
     @property
     def local_text(self):
@@ -72,21 +74,31 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         :rtype : defer.Deferred с результатом команды ApplyPatchCommand
         :param nextText: str текст, который является более новой версией текущего текст self.currentText
         """
-        print 'local_onTextChanged', self.name
+        log.msg('View with id={0} send a patch'.format(self.view.id()))
         patches = self.dmp.patch_make(self.currentText, nextText)
         serialized = self.dmp.patch_toText(patches)
         if self.clientProtocol is not None:
             self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
         return ApplyPatchCommand.default_succeed_response
 
+    # noinspection PyBroadException
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
-        print 'remote_apply:', self.name
+        log.msg('View with id={0} recived a patch'.format(self.view.id()))
         _patch = self.dmp.patch_fromText(patch)
         patchedText, result = self.dmp.patch_apply(_patch, self.currentText)
         if False in result:
             raise PatchIsNotApplicableException()
-        self.currentText = patchedText
+        edit = self.view.begin_edit()
+        try:
+            from sublime import Region
+
+            self.view.replace(edit, Region(0, self.view.size()), patchedText)
+            self.currentText = patchedText
+        except:
+            log.err()
+        finally:
+            self.view.end_edit(edit)
         return {'succeed': True}
 
     @GetTextCommand.responder
@@ -118,7 +130,7 @@ class ServerPortIsNotInitializedError(Exception):
 
 
 class Application(object):
-    def __init__(self, reactor, name=''):
+    def __init__(self, reactor, name='', view=None):
         self.reactor = reactor
         self.name = name
         # заполняются после setUp():
@@ -127,7 +139,7 @@ class Application(object):
         self.clientFactory = None
         self.serverPort = None
         self.clientProtocol = None
-        self.locator = DiffMatchPatchAlgorithm(clientProtocol=self.clientProtocol, name=name)
+        self.locator = DiffMatchPatchAlgorithm(clientProtocol=self.clientProtocol, name=name, view=view)
 
     @property
     def serverPortNumber(self):
