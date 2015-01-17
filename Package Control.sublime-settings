@@ -1,0 +1,18 @@
+{
+	"in_process_packages":
+	[
+	],
+	"installed_dependencies":
+	[
+		"0_package_control_loader",
+		"bz2",
+		"select-windows",
+		"ssl-windows"
+	],
+	"installed_packages":
+	[
+		"Base16 Color Schemes",
+		"Package Control",
+		"Tomorrow Color Schemes"
+	]
+}
