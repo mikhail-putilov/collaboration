@@ -1,4 +1,5 @@
 # coding=utf-8
+import logging
 from twisted.protocols.amp import Command, Unicode, Boolean, CommandLocator
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
@@ -6,6 +7,7 @@ from twisted.internet.protocol import Factory, ClientFactory
 from twisted.protocols.amp import AMP
 
 from libs.dmp import diff_match_patch
+from twisted.python import log
 
 
 __author__ = 'snowy'
@@ -72,21 +74,22 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         :rtype : defer.Deferred с результатом команды ApplyPatchCommand
         :param nextText: str текст, который является более новой версией текущего текст self.currentText
         """
-        print 'local_onTextChanged', self.name
         patches = self.dmp.patch_make(self.currentText, nextText)
         serialized = self.dmp.patch_toText(patches)
         if self.clientProtocol is not None:
             self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
+            log.msg('{0} sent patch'.format(self.name), logLevel=logging.DEBUG)
         return ApplyPatchCommand.default_succeed_response
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
-        print 'remote_apply:', self.name
         _patch = self.dmp.patch_fromText(patch)
         patchedText, result = self.dmp.patch_apply(_patch, self.currentText)
         if False in result:
+            log.msg('{0} remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
             raise PatchIsNotApplicableException()
         self.currentText = patchedText
+        log.msg('{0} remote patch applied'.format(self.name), logLevel=logging.DEBUG)
         return {'succeed': True}
 
     @GetTextCommand.responder

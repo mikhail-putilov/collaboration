@@ -4,10 +4,6 @@ import os
 import sys
 import sublime
 
-from twisted.python import log
-
-
-
 # noinspection PyUnboundLocalVariable
 __file__ = os.path.normpath(os.path.abspath(__file__))
 __path__ = os.path.dirname(__file__)
@@ -17,6 +13,9 @@ if libs_path not in sys.path:
     sys.path.insert(0, libs_path)
 if twisted_path not in sys.path:
     sys.path.insert(0, twisted_path)
+
+from twisted.python import log
+log.startLogging(sys.stdout)
 
 
 def callInSublimeLoop(funcToCall):
@@ -44,13 +43,11 @@ except ReactorNotRestartable:
     reactorAlreadyInstalled = True
 
 if reactorAlreadyInstalled:
-    print 'reactorAlreadyInstalled'
     log.msg('twisted reactor already installed', logLevel=logging.DEBUG)
     if type(reactor) != _threadedselect.ThreadedSelectReactor:
         log.msg('unexpected reactor type installed: %s, it is best to use twisted.internet._threadedselect!' % type(
             reactor), logLevel=logging.WARNING)
 else:
-    print 'not reactorAlreadyInstalled'
     log.msg('twisted reactor installed and running', logLevel=logging.DEBUG)
 # --- --------------------------------------------------------------------- --- #
 from core.core import *
@@ -58,6 +55,9 @@ from core.core import *
 import sublime_plugin
 
 registry = {}
+"""
+Реестр - мапа из view_id -> (view's app, view's client_connection_string)
+"""
 
 
 class ClientConnectionStringIsNotInitializedError(Exception):
@@ -72,12 +72,12 @@ class RunServerCommand(sublime_plugin.TextCommand):
         """
         Начальная инициализация серверной части.
         """
-        app = Application(reactor, name='application{0}'.format(self.view.id()))
-        # print 'app has created: id={0}; title={1}'.format(app.name, self.view.name())
+        app = Application(reactor, name='Application{0}'.format(self.view.id()))
+        log.msg('App is created for the view(id={0})'.format(app.name))
 
         def _cb(client_connection_string):
             registry[self.view.id()] = (app, client_connection_string)
-            print 'client_connection_string={0}'.format(client_connection_string)
+            log.msg('client_connection_string={0}'.format(client_connection_string), logLevel=logging.DEBUG)
 
         app.setUpServerFromStr('tcp:0').addCallback(_cb)
 
@@ -94,7 +94,7 @@ class RunClientCommand(sublime_plugin.TextCommand):
             raise ClientConnectionStringIsNotInitializedError()
         app, _ = registry[self.view.id()]
         app.connectAsClientFromStr(conn_str) \
-            .addCallback(lambda ignore: sublime.status_message("client has connected"))
+            .addCallback(lambda ignore: log.msg("The client has connected to the view(id={0})".format(self.view.id())))
 
 
 class MainDispatcherListener(sublime_plugin.EventListener):
@@ -107,5 +107,4 @@ class MainDispatcherListener(sublime_plugin.EventListener):
             allTextRegion = sublime.Region(0, view.size())
             allText = view.substr(allTextRegion)
             app.algorithm.local_onTextChanged(allText)
-
 
