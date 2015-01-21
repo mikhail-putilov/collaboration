@@ -1,0 +1,3 @@
+[submodule "libs/twisted"]
+	path = libs/twisted
+	url = git@github.com:twisted/twisted.git

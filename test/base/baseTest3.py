@@ -8,6 +8,7 @@ from twisted.internet.protocol import Factory
 from twisted.protocols.amp import AMP
 from twisted.trial import unittest
 from core.core import DiffMatchPatchAlgorithm, GetTextCommand, save
+from twisted.python import log
 
 import test.base.constants as constants
 
@@ -58,8 +59,8 @@ class BaseTest(unittest.TestCase):
         # emulate editing text
         d = defer.succeed(None)
         for newTextVersion in constants.textVersionSeq[1:]:
-            d = d.addCallback(lambda ignore: alg.local_onTextChanged(newTextVersion)) \
-                .addCallback(self.assertTrue, msg='Патчи textVersionSeq должены примениться на сервере')
+            iteration = lambda ignore, text: alg.local_onTextChanged(text)
+            d = d.addCallback(iteration, newTextVersion)
 
         def checkResult(ignore):
             return self.clientProtocol \
@@ -69,7 +70,7 @@ class BaseTest(unittest.TestCase):
                              msg='Результат применения патчей на сервере должен привести '
                                  'к тому же состоянию текста textVersionSeq[-1]')
 
-        return d.addCallback(checkResult)
+        return d.addCallback(checkResult).addErrback(log.err)
 
 
 if __name__ == '__main__':
