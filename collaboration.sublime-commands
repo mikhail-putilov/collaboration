@@ -1,3 +1,4 @@
 [
-  { "caption": "Run collaboration: server side", "command": "run_server" }
+  { "caption": "Run collaboration: server side", "command": "run_server" },
+  { "caption": "Connect two windows: quick way", "command": "connect_two_windows"}
 ]

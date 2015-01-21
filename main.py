@@ -15,6 +15,7 @@ if twisted_path not in sys.path:
     sys.path.insert(0, twisted_path)
 
 from twisted.python import log
+
 log.startLogging(sys.stdout)
 
 
@@ -65,13 +66,46 @@ class ClientConnectionStringIsNotInitializedError(Exception):
     pass
 
 
+class ViewAwareApplication(Application):
+    def __init__(self, _reactor, view, name=''):
+        super(ViewAwareApplication, self).__init__(_reactor, name)
+        self.view = view
+        ":type view: sublime.View"
+        self.locator = ViewAwareAlgorithm(self.view, clientProtocol=self.clientProtocol, name=name)
+
+
+class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
+    def __init__(self, view, initialText='', clientProtocol=None, name=''):
+        """
+        Алгоритм, который знает о том, что работает с sublime.View
+        :param view: sublime.View
+        :param initialText: str
+        :param clientProtocol:
+        :param name: str
+        """
+        super(ViewAwareAlgorithm, self).__init__(initialText, clientProtocol, name)
+        self.view = view
+        ":type view: sublime.View"
+
+    @ApplyPatchCommand.responder
+    def remote_applyPatch(self, patch):
+        edit = self.view.begin_edit()
+        try:
+            respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch)
+            self.view.erase(edit, sublime.Region(0, self.view.size()))
+            self.view.insert(edit, 0, self.currentText)
+            return respond
+        finally:
+            self.view.end_edit(edit)
+
+
 # noinspection PyClassHasNoInit
 class RunServerCommand(sublime_plugin.TextCommand):
     def run(self, edit):
         """
         Начальная инициализация серверной части.
         """
-        app = Application(reactor, name='Application{0}'.format(self.view.id()))
+        app = ViewAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
         log.msg('App is created for the view(id={0})'.format(self.view.id()))
 
         def _cb(client_connection_string):
@@ -83,14 +117,14 @@ class RunServerCommand(sublime_plugin.TextCommand):
 
 # noinspection PyClassHasNoInit
 class RunClientCommand(sublime_plugin.TextCommand):
-    def run(self, edit, conn_str=None):
+    def run(self, edit, connection_str=None):
         """
         Начальная инициализация серверной части.
         """
-        if conn_str is None:
+        if connection_str is None:
             raise ClientConnectionStringIsNotInitializedError()
         app, _ = registry[self.view.id()]
-        app.connectAsClientFromStr(conn_str) \
+        app.connectAsClientFromStr(connection_str) \
             .addCallback(lambda ignore: log.msg("The client has connected to the view(id={0})".format(self.view.id())))
 
 
@@ -103,3 +137,26 @@ class MainDispatcherListener(sublime_plugin.EventListener):
             allText = view.substr(allTextRegion)
             app.algorithm.local_onTextChanged(allText)
 
+
+class NumberOfWindowsIsNotSupportedError(Exception):
+    pass
+
+
+# noinspection PyClassHasNoInit
+class ConnectTwoWindows(sublime_plugin.TextCommand):
+    def run(self, edit):
+        if len(sublime.windows()) != 2:
+            raise NumberOfWindowsIsNotSupportedError("Create two windows and try again")
+        windows = sublime.windows()[:2]
+        for window in windows:
+            window.active_view().run_command('run_server')
+        self.connectToEachOther(windows[0], windows[1])
+
+    @staticmethod
+    def connectToEachOther(window1, window2):
+        def _connect(_window1, _window2):
+            app, connection_str = registry[_window1.active_view().id()]
+            _window2.active_view().run_command('run_client', {'connection_str': connection_str})
+
+        _connect(window2, window1)
+        _connect(window1, window2)
