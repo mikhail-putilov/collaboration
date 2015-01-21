@@ -26,6 +26,7 @@ from twisted.internet.error import ReactorAlreadyInstalledError, ReactorAlreadyR
 
 reactorAlreadyInstalled = False
 try:
+    # noinspection PyProtectedMember
     from twisted.internet import _threadedselect
 
     _threadedselect.install()
@@ -64,16 +65,14 @@ class ClientConnectionStringIsNotInitializedError(Exception):
     pass
 
 
+# noinspection PyClassHasNoInit
 class RunServerCommand(sublime_plugin.TextCommand):
-    def __init__(self):
-        pass
-
     def run(self, edit):
         """
         Начальная инициализация серверной части.
         """
         app = Application(reactor, name='Application{0}'.format(self.view.id()))
-        log.msg('App is created for the view(id={0})'.format(app.name))
+        log.msg('App is created for the view(id={0})'.format(self.view.id()))
 
         def _cb(client_connection_string):
             registry[self.view.id()] = (app, client_connection_string)
@@ -82,10 +81,8 @@ class RunServerCommand(sublime_plugin.TextCommand):
         app.setUpServerFromStr('tcp:0').addCallback(_cb)
 
 
+# noinspection PyClassHasNoInit
 class RunClientCommand(sublime_plugin.TextCommand):
-    def __init__(self):
-        pass
-
     def run(self, edit, conn_str=None):
         """
         Начальная инициализация серверной части.
@@ -97,10 +94,8 @@ class RunClientCommand(sublime_plugin.TextCommand):
             .addCallback(lambda ignore: log.msg("The client has connected to the view(id={0})".format(self.view.id())))
 
 
+# noinspection PyClassHasNoInit
 class MainDispatcherListener(sublime_plugin.EventListener):
-    def __init__(self):
-        pass
-
     def on_modified(self, view):
         if view.id() in registry:
             app, _ = registry[view.id()]
