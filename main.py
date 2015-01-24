@@ -2,14 +2,15 @@
 
 import sublime_plugin
 import sublime
+from collections import namedtuple
+
+RegistryEntry = namedtuple('RegistryEntry', ['application', 'connection_string'])
 
 from core.core import *
 from reactor import reactor
 
 registry = {}
-"""
-Реестр - мапа из view_id -> (view's app, view's client_connection_string)
-"""
+''':type registry: dict which maps "view_id" → (view's application, view's client_connection_string)'''
 
 
 class ClientConnectionStringIsNotInitializedError(Exception):
@@ -20,7 +21,7 @@ class ViewAwareApplication(Application):
     def __init__(self, _reactor, view, name=''):
         super(ViewAwareApplication, self).__init__(_reactor, name)
         self.view = view
-        ":type view: sublime.View"
+        ':type view: sublime.View'
         self.locator = ViewAwareAlgorithm(self.view, clientProtocol=self.clientProtocol, name=name)
 
 
@@ -35,7 +36,7 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
         """
         super(ViewAwareAlgorithm, self).__init__(initialText, clientProtocol, name)
         self.view = view
-        ":type view: sublime.View"
+        ':type view: sublime.View'
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
@@ -67,7 +68,7 @@ class RunServerCommand(sublime_plugin.TextCommand):
         log.msg('App is created for the view(id={0})'.format(self.view.id()))
 
         def _cb(client_connection_string):
-            registry[self.view.id()] = (app, client_connection_string)
+            registry[self.view.id()] = RegistryEntry(app, client_connection_string)
             log.msg('client_connection_string={0}'.format(client_connection_string), logLevel=logging.DEBUG)
 
         app.setUpServerFromStr('tcp:0').addCallback(_cb)
@@ -81,16 +82,16 @@ class RunClientCommand(sublime_plugin.TextCommand):
         """
         if connection_str is None:
             raise ClientConnectionStringIsNotInitializedError()
-        app, _ = registry[self.view.id()]
+        app = registry[self.view.id()].application
         app.connectAsClientFromStr(connection_str) \
-            .addCallback(lambda ignore: log.msg("The client has connected to the view(id={0})".format(self.view.id())))
+            .addCallback(lambda ignore: log.msg('The client has connected to the view(id={0})'.format(self.view.id())))
 
 
 # noinspection PyClassHasNoInit
 class MainDispatcherListener(sublime_plugin.EventListener):
     def on_modified(self, view):
         if view.id() in registry:
-            app, _ = registry[view.id()]
+            app = registry[view.id()].application
             allTextRegion = sublime.Region(0, view.size())
             allText = view.substr(allTextRegion)
             app.algorithm.local_onTextChanged(allText)
@@ -102,9 +103,14 @@ class NumberOfWindowsIsNotSupportedError(Exception):
 
 # noinspection PyClassHasNoInit
 class ConnectTwoWindows(sublime_plugin.TextCommand):
+    """
+    Соединить два окна. Иницилизирует два пира, каждый из которых владеет одним окном ST.
+    Текст в обоих окнах должен синхронизироваться
+    """
+
     def run(self, edit):
         if len(sublime.windows()) != 2:
-            raise NumberOfWindowsIsNotSupportedError("Create two windows and try again")
+            raise NumberOfWindowsIsNotSupportedError('Create two windows and try again')
         windows = sublime.windows()[:2]
         for window in windows:
             window.active_view().run_command('run_server')
