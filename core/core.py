@@ -77,8 +77,8 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         patches = self.dmp.patch_make(self.currentText, nextText)
         serialized = self.dmp.patch_toText(patches)
         if self.clientProtocol is not None:
-            self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
-            log.msg('{0} sent patch'.format(self.name), logLevel=logging.DEBUG)
+            log.msg('{0} sending patch'.format(self.name), logLevel=logging.DEBUG)
+            return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
         return ApplyPatchCommand.default_succeed_response
 
     @ApplyPatchCommand.responder

@@ -1,60 +1,10 @@
 # coding=utf-8
-import logging
-import os
-import sys
-import sublime
-
-# noinspection PyUnboundLocalVariable
-__file__ = os.path.normpath(os.path.abspath(__file__))
-__path__ = os.path.dirname(__file__)
-libs_path = os.path.join(__path__, 'libs')
-twisted_path = os.path.join(__path__, 'libs', 'twisted')
-if libs_path not in sys.path:
-    sys.path.insert(0, libs_path)
-if twisted_path not in sys.path:
-    sys.path.insert(0, twisted_path)
-
-from twisted.python import log
-
-log.startLogging(sys.stdout)
-
-
-def callInSublimeLoop(funcToCall):
-    sublime.set_timeout(funcToCall, 0)
-
-
-from twisted.internet.error import ReactorAlreadyInstalledError, ReactorAlreadyRunning, ReactorNotRestartable
-
-reactorAlreadyInstalled = False
-try:
-    # noinspection PyProtectedMember
-    from twisted.internet import _threadedselect
-
-    _threadedselect.install()
-except ReactorAlreadyInstalledError:
-    reactorAlreadyInstalled = True
-
-from twisted.internet import reactor
-
-try:
-    # noinspection PyUnresolvedReferences
-    reactor.interleave(callInSublimeLoop, installSignalHandlers=False)
-except ReactorAlreadyRunning:
-    reactorAlreadyInstalled = True
-except ReactorNotRestartable:
-    reactorAlreadyInstalled = True
-
-if reactorAlreadyInstalled:
-    log.msg('twisted reactor already installed', logLevel=logging.DEBUG)
-    if type(reactor) != _threadedselect.ThreadedSelectReactor:
-        log.msg('unexpected reactor type installed: %s, it is best to use twisted.internet._threadedselect!' % type(
-            reactor), logLevel=logging.WARNING)
-else:
-    log.msg('twisted reactor installed and running', logLevel=logging.DEBUG)
-# --- --------------------------------------------------------------------- --- #
-from core.core import *
 
 import sublime_plugin
+import sublime
+
+from core.core import *
+from reactor import reactor
 
 registry = {}
 """
@@ -89,6 +39,8 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
+        log.msg(self.view.id(), logLevel=logging.DEBUG)
+        # noinspection PyArgumentList
         edit = self.view.begin_edit()
         try:
             respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch)
@@ -99,12 +51,18 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
             self.view.end_edit(edit)
 
 
+class ViewIsNotInitializedError(Exception):
+    pass
+
+
 # noinspection PyClassHasNoInit
 class RunServerCommand(sublime_plugin.TextCommand):
     def run(self, edit):
         """
         Начальная инициализация серверной части.
         """
+        # if view_id is None:
+        # raise ViewIsNotInitializedError()
         app = ViewAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
         log.msg('App is created for the view(id={0})'.format(self.view.id()))
 
@@ -155,8 +113,8 @@ class ConnectTwoWindows(sublime_plugin.TextCommand):
     @staticmethod
     def connectToEachOther(window1, window2):
         def _connect(_window1, _window2):
-            app, connection_str = registry[_window1.active_view().id()]
-            _window2.active_view().run_command('run_client', {'connection_str': connection_str})
+            app, _window1_connection_str = registry[_window1.active_view().id()]
+            _window2.active_view().run_command('run_client', {'connection_str': _window1_connection_str})
 
         _connect(window2, window1)
         _connect(window1, window2)
