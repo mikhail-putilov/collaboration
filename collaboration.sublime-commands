@@ -1,3 +1,30 @@
 [
-  { "caption": "Connect two windows: quick way", "command": "connect_two_windows"}
+  {
+    "caption": "QConnect two windows",
+    "command": "connect_two_windows"
+  },
+  {
+    "caption": "QSave recorded",
+    "command": "save_to_file",
+    "args": {"filename": "C:\\Users\\snowy\\AppData\\Roaming\\Sublime Text 2\\Packages\\collaboration\\recorded_macro.txt"}
+  },
+  {
+    "caption": "QLoad saved",
+    "command": "load_from_file",
+    "args": {"filename": "C:\\Users\\snowy\\AppData\\Roaming\\Sublime Text 2\\Packages\\collaboration\\recorded_macro.txt"}
+  },
+  {
+    "caption": "QReplay",
+    "command": "replay"
+  },
+  {
+    "caption": "QStart recording",
+    "command": "start_stop_record",
+    "args": {"start_or_stop": "start"}
+  },
+  {
+    "caption": "QStop recording",
+    "command": "start_stop_record",
+    "args": {"start_or_stop": "stop"}
+  }
 ]
