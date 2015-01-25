@@ -40,10 +40,11 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
-        log.msg(self.view.id(), logLevel=logging.DEBUG)
         # noinspection PyArgumentList
         edit = self.view.begin_edit()
         try:
+            log.msg('Current text before patching({0}): {1}'.format(self.name, self.currentText),
+                    logLevel=logging.DEBUG)
             respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch)
             self.view.erase(edit, sublime.Region(0, self.view.size()))
             self.view.insert(edit, 0, self.currentText)
@@ -62,8 +63,6 @@ class RunServerCommand(sublime_plugin.TextCommand):
         """
         Начальная инициализация серверной части.
         """
-        # if view_id is None:
-        # raise ViewIsNotInitializedError()
         app = ViewAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
         log.msg('App is created for the view(id={0})'.format(self.view.id()))
 
@@ -86,11 +85,20 @@ class RunClientCommand(sublime_plugin.TextCommand):
         app.connectAsClientFromStr(connection_str) \
             .addCallback(lambda ignore: log.msg('The client has connected to the view(id={0})'.format(self.view.id())))
 
+# todo: костыль, не понятно как его убрать. При редактировании текста, срабатывает два раза on_modified ивент
+allowedToSendModifications = True
+
 
 # noinspection PyClassHasNoInit
 class MainDispatcherListener(sublime_plugin.EventListener):
     def on_modified(self, view):
-        if view.id() in registry:
+        """
+
+        :param view: sublime.View
+        """
+        global allowedToSendModifications
+        allowedToSendModifications = not allowedToSendModifications
+        if view.id() in registry and allowedToSendModifications:
             app = registry[view.id()].application
             allTextRegion = sublime.Region(0, view.size())
             allText = view.substr(allTextRegion)
@@ -111,6 +119,7 @@ class ConnectTwoWindows(sublime_plugin.TextCommand):
     def run(self, edit):
         if len(sublime.windows()) != 2:
             raise NumberOfWindowsIsNotSupportedError('Create two windows and try again')
+
         windows = sublime.windows()[:2]
         for window in windows:
             window.active_view().run_command('run_server')
@@ -119,8 +128,8 @@ class ConnectTwoWindows(sublime_plugin.TextCommand):
     @staticmethod
     def connectToEachOther(window1, window2):
         def _connect(_window1, _window2):
-            app, _window1_connection_str = registry[_window1.active_view().id()]
-            _window2.active_view().run_command('run_client', {'connection_str': _window1_connection_str})
+            entry = registry[_window1.active_view().id()]
+            _window2.active_view().run_command('run_client', {'connection_str': entry.connection_string})
 
         _connect(window2, window1)
         _connect(window1, window2)
