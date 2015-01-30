@@ -6,12 +6,12 @@
   {
     "caption": "QSave recorded",
     "command": "save_to_file",
-    "args": {"filename": "C:\\Users\\snowy\\AppData\\Roaming\\Sublime Text 2\\Packages\\collaboration\\recorded_macro.txt"}
+    "args": {"filename": "C:\\Users\\Sofi\\AppData\\Roaming\\Sublime Text 2\\Packages\\collaboration\\recorded_macro.txt"}
   },
   {
     "caption": "QLoad saved",
     "command": "load_from_file",
-    "args": {"filename": "C:\\Users\\snowy\\AppData\\Roaming\\Sublime Text 2\\Packages\\collaboration\\recorded_macro.txt"}
+    "args": {"filename": "C:\\Users\\Sofi\\AppData\\Roaming\\Sublime Text 2\\Packages\\collaboration\\recorded_macro.txt"}
   },
   {
     "caption": "QReplay",

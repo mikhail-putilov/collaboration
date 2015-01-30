@@ -1,4 +1,5 @@
 from __future__ import print_function
+import threading
 from time import time, sleep
 
 
@@ -67,26 +68,41 @@ def compute_delay(stash):
     return res
 
 
+def yo(what, view):
+    edit = view.begin_edit()
+    try:
+        view.erase(edit, sublime.Region(0, view.size()))
+        view.insert(edit, 0, what)
+    finally:
+        view.end_edit(edit)
+
+
+class ReplayThread(threading.Thread):
+    def __init__(self, view):
+        super(ReplayThread, self).__init__()
+        self.view = view
+        self.daemon = True
+
+    def run(self):
+        for delay, what in compute_delay(stash):
+            sleep(delay)
+            sublime.set_timeout(lambda: yo(what, self.view), 0)
+
+
 # noinspection PyClassHasNoInit
 class ReplayCommand(sublime_plugin.TextCommand):
     def run(self, edit):
-        for delay, what in compute_delay(stash):
-            sleep(0.4)
-            edit = self.view.begin_edit()
-            try:
-                self.view.erase(edit, sublime.Region(0, self.view.size()))
-                self.view.insert(edit, 0, what)
-            finally:
-                self.view.end_edit(edit)
+        sublime.set_timeout(ReplayThread(self.view).start, 10)
 
 
 # noinspection PyClassHasNoInit
 class LoadFromFileCommand(sublime_plugin.TextCommand):
     def run(self, edit, filename=''):
-        clear()
         if not filename:
+            clear()
             raise FileNotFoundError()
         with open(filename) as f:
+            clear()
             data = f.read()
             split = data.split('|')
             for when, what in zip(split[::2], split[1::2]):
