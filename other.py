@@ -11,7 +11,7 @@ import sublime_plugin
 stash = []
 
 spin = True
-allowed_to_record = False
+is_recording = False
 
 
 class ArgumentError(Exception):
@@ -19,13 +19,20 @@ class ArgumentError(Exception):
 
 
 # noinspection PyClassHasNoInit
+class ClearStashCommand(sublime_plugin.TextCommand):
+    def run(self, edit):
+        global stash
+        stash = []
+
+
+# noinspection PyClassHasNoInit
 class StartStopRecordCommand(sublime_plugin.TextCommand):
     def run(self, edit, start_or_stop=None):
-        global allowed_to_record
+        global is_recording
         if start_or_stop == 'start':
-            allowed_to_record = True
+            is_recording = True
         elif start_or_stop == 'stop':
-            allowed_to_record = False
+            is_recording = False
         else:
             raise ArgumentError('allowed_to_record must be "start" or "stop"')
 
@@ -34,14 +41,14 @@ class StartStopRecordCommand(sublime_plugin.TextCommand):
 class RecordActionsListener(sublime_plugin.EventListener):
     def on_modified(self, view):
         global spin
-        spin = not spin
-        if spin and allowed_to_record:
+        # spin = not spin
+        if spin and is_recording:
             all_text_region = sublime.Region(0, view.size())
             current_text = view.substr(all_text_region)
-            save(time(), current_text)
+            append_to_stash(time(), current_text)
 
 
-def save(when, what):
+def append_to_stash(when, what):
     stash.append((when, what))
 
 
@@ -57,18 +64,18 @@ class FileNotFoundError(Exception):
 # noinspection PyShadowingNames
 def compute_delay(stash):
     first_what = stash[0][1]
-    res = [(0, first_what)]
+    processed_stash_copy = [(0, first_what)]
     for i, (when, what) in enumerate(stash):
         if i == 0:
             continue
         previous_when = stash[i - 1][0]
         delay = when - previous_when
-        res.append((delay, what))
+        processed_stash_copy.append((delay, what))
 
-    return res
+    return processed_stash_copy
 
 
-def yo(what, view):
+def replace_view_with_what(what, view):
     edit = view.begin_edit()
     try:
         view.erase(edit, sublime.Region(0, view.size()))
@@ -81,12 +88,11 @@ class ReplayThread(threading.Thread):
     def __init__(self, view):
         super(ReplayThread, self).__init__()
         self.view = view
-        self.daemon = True
 
     def run(self):
         for delay, what in compute_delay(stash):
             sleep(delay)
-            sublime.set_timeout(lambda: yo(what, self.view), 0)
+            sublime.set_timeout(lambda: replace_view_with_what(what, self.view), 0)
 
 
 # noinspection PyClassHasNoInit
@@ -106,10 +112,11 @@ class LoadFromFileCommand(sublime_plugin.TextCommand):
             data = f.read()
             split = data.split('|')
             for when, what in zip(split[::2], split[1::2]):
-                save(float(when), what)
+                append_to_stash(float(when), what)
 
 
-def serialize_stash():
+# noinspection PyShadowingNames
+def serialize_stash(stash):
     serialized = ''
     for entry in stash:
         when, what = entry
@@ -122,6 +129,12 @@ class SaveToFileCommand(sublime_plugin.TextCommand):
     def run(self, edit, filename=''):
         if not filename:
             raise FileNotFoundError()
-        serialized = serialize_stash()
+        serialized = serialize_stash(stash)
         with open(filename, 'w+b') as f:
+            _delete_content(f)
             print(serialized, file=f)
+
+
+def _delete_content(opened_file):
+    opened_file.seek(0)
+    opened_file.truncate()
