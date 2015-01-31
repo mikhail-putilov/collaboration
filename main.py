@@ -37,20 +37,24 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
         super(ViewAwareAlgorithm, self).__init__(initialText, clientProtocol, name)
         self.view = view
         ':type view: sublime.View'
+        self.dmp.view = view
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
         # noinspection PyArgumentList
-        edit = self.view.begin_edit()
+        # edit = self.view.begin_edit()
         try:
             log.msg('Current text before patching({0}): {1}'.format(self.name, self.currentText),
                     logLevel=logging.DEBUG)
             respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch)
-            self.view.erase(edit, sublime.Region(0, self.view.size()))
-            self.view.insert(edit, 0, self.currentText)
+            for curry in self.dmp.pizda:
+                curry()
+            # self.view.erase(edit, sublime.Region(0, self.view.size()))
+            # self.view.insert(edit, 0, self.currentText)
             return respond
         finally:
-            self.view.end_edit(edit)
+            # self.view.end_edit(edit)
+            pass
 
 
 class ViewIsNotInitializedError(Exception):

@@ -1,6 +1,7 @@
 #!/usr/bin/python2.4
 
 from __future__ import division
+import sublime
 
 """Diff Match and Patch
 
@@ -39,6 +40,8 @@ class diff_match_patch:
 
   Also contains the behaviour settings.
   """
+  view = None
+  ":type view: sublime.View"
 
   def __init__(self):
     """Inits a diff_match_patch object with default settings.
@@ -1545,6 +1548,31 @@ class diff_match_patch:
       patchesCopy.append(patchCopy)
     return patchesCopy
 
+
+  def pizda_curry(self, start_loc, end_loc, texd):
+    def _p():
+      print 'replace="{0}"; with="{1}"; startloc="{2}"; endloc="{3}"'.format(self.view.substr(sublime.Region(start_loc, end_loc)), texd, start_loc, end_loc)
+      if self.view:
+        edit = self.view.begin_edit()
+        try:
+          # self.view.replace(edit, sublime.Region(start_loc, end_loc), texd)
+          pass
+        finally:
+          self.view.end_edit(edit)
+    return lambda: _p()
+
+  def pizda_curry_erase(self, start_loc, end_loc):
+    def _k():
+      print 'erase="{0}"; startloc="{1}"; endloc="{2}"'.format(self.view.substr(sublime.Region(start_loc, end_loc)), start_loc, end_loc)
+      if self.view:
+        edit = self.view.begin_edit()
+        try:
+          # self.view.erase(edit, sublime.Region(start_loc, end_loc))
+          pass
+        finally:
+          self.view.end_edit(edit)
+    return lambda: _k()
+
   def patch_apply(self, patches, text):
     """Merge a set of patches onto the text.  Return a patched text, as well
     as a list of true/false values indicating which patches were applied.
@@ -1572,6 +1600,7 @@ class diff_match_patch:
     # has an effective expected position of 22.
     delta = 0
     results = []
+    self.pizda = []
     for patch in patches:
       expected_loc = patch.start2 + delta
       text1 = self.diff_text1(patch.diffs)
@@ -1606,7 +1635,10 @@ class diff_match_patch:
           # Perfect match, just shove the replacement text in.
           text = (text[:start_loc] + self.diff_text2(patch.diffs) +
                       text[start_loc + len(text1):])
+          print 'perfect match'
+          self.pizda.append(self.pizda_curry(start_loc, start_loc + len(text1), self.diff_text2(patch.diffs)))
         else:
+          print 'imperfect match'
           # Imperfect match.
           # Run a diff to get a framework of equivalent indices.
           diffs = self.diff_main(text1, text2, False)
@@ -1624,13 +1656,17 @@ class diff_match_patch:
               if op == self.DIFF_INSERT:  # Insertion
                 text = text[:start_loc + index2] + data + text[start_loc +
                                                                index2:]
+                self.pizda.append(self.pizda_curry(start_loc + index2, start_loc + index2, data))
               elif op == self.DIFF_DELETE:  # Deletion
                 text = text[:start_loc + index2] + text[start_loc +
                     self.diff_xIndex(diffs, index1 + len(data)):]
+                self.pizda.append(self.pizda_curry_erase(start_loc + index2, start_loc + self.diff_xIndex(diffs, index1 + len(data))))
               if op != self.DIFF_DELETE:
                 index1 += len(data)
     # Strip the padding off.
     text = text[len(nullPadding):-len(nullPadding)]
+    self.pizda.append(self.pizda_curry_erase(0, len(nullPadding)))
+    self.pizda.append(self.pizda_curry_erase(self.view.size()-len(nullPadding), self.view.size()))
     return (text, results)
 
   def patch_addPadding(self, patches):

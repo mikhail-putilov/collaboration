@@ -1,11 +1,11 @@
 [
   {
-    "caption": "QConnect two windows",
+    "caption": "QW: Connect two windows",
     "command": "connect_two_windows"
   },
   {
-    "caption": "QReplay",
+    "caption": "QR: Replay",
     "command": "replay",
-    "args": {"text": "Polonius: By the mass, and 'tis like a camel, indeed.\nHamlet: Methinks it is like a weasel.\nPolonius: It is backed like a weasel."}
+    "args": {"text": "William Nye: Principal private secretary.\nDry-as-dust mandarin who led Prince Charles's defence at a grilling by the Commons public accounts committee.\nDue to leave in April."}
   }
 ]

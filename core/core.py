@@ -91,7 +91,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
             log.msg('{0} remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
             raise PatchIsNotApplicableException()
         self.currentText = patchedText
-        log.msg('{0} remote patch applied'.format(self.name), logLevel=logging.DEBUG)
+        log.msg('{0} remote patch applied. Now text is: {1}'.format(self.name, self.currentText), logLevel=logging.DEBUG)
         return {'succeed': True}
 
     @GetTextCommand.responder
