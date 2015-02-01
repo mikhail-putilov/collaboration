@@ -1549,29 +1549,31 @@ class diff_match_patch:
     return patchesCopy
 
 
-  def pizda_curry(self, start_loc, end_loc, texd):
+  def pizda_curry(self, start_loc, end_loc, texd, view):
     def _p():
-      print 'replace="{0}"; with="{1}"; startloc="{2}"; endloc="{3}"'.format(self.view.substr(sublime.Region(start_loc, end_loc)), texd, start_loc, end_loc)
-      if self.view:
-        edit = self.view.begin_edit()
+      print view.id()
+      if view:
+        edit = view.begin_edit()
+        print edit
         try:
           # self.view.replace(edit, sublime.Region(start_loc, end_loc), texd)
+          print 'replace="{0}"; with="{1}"; startloc="{2}"; endloc="{3}"'.format(self.view.substr(sublime.Region(start_loc, end_loc)), texd, start_loc, end_loc)
           pass
         finally:
-          self.view.end_edit(edit)
-    return lambda: _p()
+          view.end_edit(edit)
+    return _p
 
-  def pizda_curry_erase(self, start_loc, end_loc):
+  def pizda_curry_erase(self, start_loc, end_loc, view):
     def _k():
       print 'erase="{0}"; startloc="{1}"; endloc="{2}"'.format(self.view.substr(sublime.Region(start_loc, end_loc)), start_loc, end_loc)
-      if self.view:
-        edit = self.view.begin_edit()
+      if view:
+        edit = view.begin_edit()
         try:
           # self.view.erase(edit, sublime.Region(start_loc, end_loc))
           pass
         finally:
-          self.view.end_edit(edit)
-    return lambda: _k()
+          view.end_edit(edit)
+    return _k
 
   def patch_apply(self, patches, text):
     """Merge a set of patches onto the text.  Return a patched text, as well
@@ -1601,6 +1603,7 @@ class diff_match_patch:
     delta = 0
     results = []
     self.pizda = []
+    self.ebola = []
     for patch in patches:
       expected_loc = patch.start2 + delta
       text1 = self.diff_text1(patch.diffs)
@@ -1636,7 +1639,8 @@ class diff_match_patch:
           text = (text[:start_loc] + self.diff_text2(patch.diffs) +
                       text[start_loc + len(text1):])
           print 'perfect match'
-          self.pizda.append(self.pizda_curry(start_loc, start_loc + len(text1), self.diff_text2(patch.diffs)))
+          self.pizda.append(self.pizda_curry(start_loc, start_loc + len(text1), self.diff_text2(patch.diffs), self.view))
+          self.ebola.append(('insert', start_loc, start_loc + len(text1), self.diff_text2(patch.diffs)))
         else:
           print 'imperfect match'
           # Imperfect match.
@@ -1656,17 +1660,19 @@ class diff_match_patch:
               if op == self.DIFF_INSERT:  # Insertion
                 text = text[:start_loc + index2] + data + text[start_loc +
                                                                index2:]
-                self.pizda.append(self.pizda_curry(start_loc + index2, start_loc + index2, data))
+                self.pizda.append(self.pizda_curry(start_loc + index2, start_loc + index2, data, self.view))
+                self.ebola.append(('insert',start_loc + index2, start_loc + index2, data))
               elif op == self.DIFF_DELETE:  # Deletion
                 text = text[:start_loc + index2] + text[start_loc +
                     self.diff_xIndex(diffs, index1 + len(data)):]
-                self.pizda.append(self.pizda_curry_erase(start_loc + index2, start_loc + self.diff_xIndex(diffs, index1 + len(data))))
+                self.pizda.append(self.pizda_curry_erase(start_loc + index2, start_loc + self.diff_xIndex(diffs, index1 + len(data)), self.view))
+                self.ebola.append(('erase', start_loc + index2, start_loc + self.diff_xIndex(diffs, index1 + len(data))))
               if op != self.DIFF_DELETE:
                 index1 += len(data)
     # Strip the padding off.
     text = text[len(nullPadding):-len(nullPadding)]
-    self.pizda.append(self.pizda_curry_erase(0, len(nullPadding)))
-    self.pizda.append(self.pizda_curry_erase(self.view.size()-len(nullPadding), self.view.size()))
+    self.pizda.append(self.pizda_curry_erase(0, len(nullPadding), self.view))
+    self.pizda.append(self.pizda_curry_erase(self.view.size()-len(nullPadding), self.view.size(), self.view))
     return (text, results)
 
   def patch_addPadding(self, patches):

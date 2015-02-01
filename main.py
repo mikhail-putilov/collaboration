@@ -25,6 +25,37 @@ class ViewAwareApplication(Application):
         self.locator = ViewAwareAlgorithm(self.view, clientProtocol=self.clientProtocol, name=name)
 
 
+class NotThatTypeOfCommandError(Exception):
+    pass
+
+
+def process(edit, view, command):
+    type = command[0]
+    sublime_start = command[1]
+    sublime_stop = command[2]
+    if type == 'insert':
+        text = command[3]
+        delta = 0
+        for char in text[:len(text)/2]:
+            if char in u'\x01\x02\x03\x04':
+                delta += 1
+        newstart = delta
+        delta_end = 0
+        for char in text[len(text)/2:][::-1]:
+            if char in u'\x01\x02\x03\x04':
+                delta_end += 1
+        newstop = delta_end
+
+        print (sublime_start+newstart-4, sublime_stop - (newstart+newstop), text[newstart:-newstop] if newstop != 0 else text[newstart:])
+        view.replace(edit, sublime.Region(sublime_start+newstart-4, sublime_stop - (newstart+newstop)), text[newstart:-newstop] if newstop != 0 else text[newstart:])
+    elif type == 'erase':
+        print ('erase', sublime_start, sublime_stop, view.substr(sublime.Region(sublime_start, sublime_stop)))
+        view.erase(edit, sublime.Region(sublime_start, sublime_stop))
+    else:
+        raise NotThatTypeOfCommandError()
+
+
+debugView = ''
 class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
     def __init__(self, view, initialText='', clientProtocol=None, name=''):
         """
@@ -41,19 +72,20 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
+        if debugView != self.view:
+            return {'succeed': True}
         # noinspection PyArgumentList
-        # edit = self.view.begin_edit()
+        edit = self.view.begin_edit()
         try:
             log.msg('Current text before patching({0}): {1}'.format(self.name, self.currentText),
                     logLevel=logging.DEBUG)
             respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch)
-            for curry in self.dmp.pizda:
-                curry()
-            # self.view.erase(edit, sublime.Region(0, self.view.size()))
-            # self.view.insert(edit, 0, self.currentText)
+            for command in self.dmp.ebola:
+                print command
+                process(edit, self.view, command)
             return respond
         finally:
-            # self.view.end_edit(edit)
+            self.view.end_edit(edit)
             pass
 
 
@@ -69,7 +101,9 @@ class RunServerCommand(sublime_plugin.TextCommand):
         """
         app = ViewAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
         log.msg('App is created for the view(id={0})'.format(self.view.id()))
-
+        global debugView
+        if not debugView:
+            debugView = self.view
         def _cb(client_connection_string):
             registry[self.view.id()] = RegistryEntry(app, client_connection_string)
             log.msg('client_connection_string={0}'.format(client_connection_string), logLevel=logging.DEBUG)
@@ -89,10 +123,6 @@ class RunClientCommand(sublime_plugin.TextCommand):
         app.connectAsClientFromStr(connection_str) \
             .addCallback(lambda ignore: log.msg('The client has connected to the view(id={0})'.format(self.view.id())))
 
-# todo: костыль, не понятно как его убрать. При редактировании текста, срабатывает два раза on_modified ивент
-allowedToSendModifications = True
-
-
 # noinspection PyClassHasNoInit
 class MainDispatcherListener(sublime_plugin.EventListener):
     def on_modified(self, view):
@@ -100,9 +130,7 @@ class MainDispatcherListener(sublime_plugin.EventListener):
 
         :param view: sublime.View
         """
-        global allowedToSendModifications
-        allowedToSendModifications = not allowedToSendModifications
-        if view.id() in registry and allowedToSendModifications:
+        if view.id() in registry:
             app = registry[view.id()].application
             allTextRegion = sublime.Region(0, view.size())
             allText = view.substr(allTextRegion)
@@ -134,6 +162,7 @@ class ConnectTwoWindows(sublime_plugin.TextCommand):
         def _connect(_window1, _window2):
             entry = registry[_window1.active_view().id()]
             _window2.active_view().run_command('run_client', {'connection_str': entry.connection_string})
+
 
         _connect(window2, window1)
         _connect(window1, window2)
