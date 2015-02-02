@@ -72,21 +72,20 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
-        if debugView != self.view:
+        if debugView != self.view:  # todo: remove
             return {'succeed': True}
-        # noinspection PyArgumentList
+
         edit = self.view.begin_edit()
         try:
             log.msg('Current text before patching({0}): {1}'.format(self.name, self.currentText),
                     logLevel=logging.DEBUG)
             respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch)
-            for command in self.dmp.ebola:
-                print command
-                process(edit, self.view, command)
+            for sublime_command in self.dmp.sublime_patch_commands:
+                print sublime_command
+                process(edit, self.view, sublime_command)
             return respond
         finally:
             self.view.end_edit(edit)
-            pass
 
 
 class ViewIsNotInitializedError(Exception):
@@ -123,18 +122,29 @@ class RunClientCommand(sublime_plugin.TextCommand):
         app.connectAsClientFromStr(connection_str) \
             .addCallback(lambda ignore: log.msg('The client has connected to the view(id={0})'.format(self.view.id())))
 
+
 # noinspection PyClassHasNoInit
 class MainDispatcherListener(sublime_plugin.EventListener):
     def on_modified(self, view):
         """
-
+        Ивент, срабатывает каждый раз при редактировании текста. Запускает всю процедуру патчинга и отправки оповещений
         :param view: sublime.View
         """
         if view.id() in registry:
             app = registry[view.id()].application
             allTextRegion = sublime.Region(0, view.size())
             allText = view.substr(allTextRegion)
-            app.algorithm.local_onTextChanged(allText)
+            app.algorithm.local_onTextChanged(allText).addErrback(self.cannot_apply_patch_eb)
+
+    # noinspection PyMethodMayBeStatic
+    def cannot_apply_patch_eb(self, failure):
+        """
+        В случае, если не получается apply patch, то выводим сообщение об ошибке, а не умираем тихо
+        :param failure: twisted.python.Failure
+        """
+        failure.trap(Exception)
+        log.err(failure)
+        sublime.error_message(str(failure))
 
 
 class NumberOfWindowsIsNotSupportedError(Exception):

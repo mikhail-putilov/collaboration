@@ -1,7 +1,9 @@
 #!/usr/bin/python2.4
+# coding=utf-8
 
 from __future__ import division
-import sublime
+import logging
+from twisted.python import log
 
 """Diff Match and Patch
 
@@ -71,6 +73,18 @@ class diff_match_patch:
     # However to avoid long patches in certain pathological cases, use 32.
     # Multiple short patches (using native ints) are much faster than long ones.
     self.Match_MaxBits = 32
+
+    # Когда патчится текст, в этом списке хранятся псевдокоманды, выполнив которые можно произвести
+    # такие же изменения в тексте (через методы объекта view) саблайма, которые производятся над
+    # внутренним текстом diff_match_patch объекта необходимо, чтобы на выходе dmp был список команд,
+    # выполнив которые мы произвели редактирование текста, аналогичное патчингу dmp над внутренним представлением текста
+    # пример:
+    # на вход) текст1 и патч1
+    # на выходе) текст2 (= текст1+патч1) и список команд саблайма, которые производят патчинг (над view объектом).
+    self.sublime_patch_commands = []
+
+    # Размер null padding в тексте
+    self.sublime_null_padding_len = None
 
   #  DIFF FUNCTIONS
 
@@ -1548,33 +1562,6 @@ class diff_match_patch:
       patchesCopy.append(patchCopy)
     return patchesCopy
 
-
-  def pizda_curry(self, start_loc, end_loc, texd, view):
-    def _p():
-      print view.id()
-      if view:
-        edit = view.begin_edit()
-        print edit
-        try:
-          # self.view.replace(edit, sublime.Region(start_loc, end_loc), texd)
-          print 'replace="{0}"; with="{1}"; startloc="{2}"; endloc="{3}"'.format(self.view.substr(sublime.Region(start_loc, end_loc)), texd, start_loc, end_loc)
-          pass
-        finally:
-          view.end_edit(edit)
-    return _p
-
-  def pizda_curry_erase(self, start_loc, end_loc, view):
-    def _k():
-      print 'erase="{0}"; startloc="{1}"; endloc="{2}"'.format(self.view.substr(sublime.Region(start_loc, end_loc)), start_loc, end_loc)
-      if view:
-        edit = view.begin_edit()
-        try:
-          # self.view.erase(edit, sublime.Region(start_loc, end_loc))
-          pass
-        finally:
-          view.end_edit(edit)
-    return _k
-
   def patch_apply(self, patches, text):
     """Merge a set of patches onto the text.  Return a patched text, as well
     as a list of true/false values indicating which patches were applied.
@@ -1602,8 +1589,8 @@ class diff_match_patch:
     # has an effective expected position of 22.
     delta = 0
     results = []
-    self.pizda = []
-    self.ebola = []
+    self.sublime_patch_commands = []
+    self.sublime_null_padding_len = len(nullPadding)
     for patch in patches:
       expected_loc = patch.start2 + delta
       text1 = self.diff_text1(patch.diffs)
@@ -1638,11 +1625,10 @@ class diff_match_patch:
           # Perfect match, just shove the replacement text in.
           text = (text[:start_loc] + self.diff_text2(patch.diffs) +
                       text[start_loc + len(text1):])
-          print 'perfect match'
-          self.pizda.append(self.pizda_curry(start_loc, start_loc + len(text1), self.diff_text2(patch.diffs), self.view))
-          self.ebola.append(('insert', start_loc, start_loc + len(text1), self.diff_text2(patch.diffs)))
+          log.msg('perfect match', logLevel=logging.DEBUG)
+          pseudo_command = ('insert', start_loc, start_loc + len(text1), self.diff_text2(patch.diffs))
+          self.sublime_patch_commands.append(pseudo_command)
         else:
-          print 'imperfect match'
           # Imperfect match.
           # Run a diff to get a framework of equivalent indices.
           diffs = self.diff_main(text1, text2, False)
@@ -1660,19 +1646,18 @@ class diff_match_patch:
               if op == self.DIFF_INSERT:  # Insertion
                 text = text[:start_loc + index2] + data + text[start_loc +
                                                                index2:]
-                self.pizda.append(self.pizda_curry(start_loc + index2, start_loc + index2, data, self.view))
-                self.ebola.append(('insert',start_loc + index2, start_loc + index2, data))
+                log.msg('imperfect match', logLevel=logging.DEBUG)
+                pseudo_command = ('insert', start_loc + index2, start_loc + index2, data)
+                self.sublime_patch_commands.append(pseudo_command)
               elif op == self.DIFF_DELETE:  # Deletion
                 text = text[:start_loc + index2] + text[start_loc +
                     self.diff_xIndex(diffs, index1 + len(data)):]
-                self.pizda.append(self.pizda_curry_erase(start_loc + index2, start_loc + self.diff_xIndex(diffs, index1 + len(data)), self.view))
-                self.ebola.append(('erase', start_loc + index2, start_loc + self.diff_xIndex(diffs, index1 + len(data))))
+                pseudo_command = ('erase', start_loc + index2, start_loc + self.diff_xIndex(diffs, index1 + len(data)))
+                self.sublime_patch_commands.append(pseudo_command)
               if op != self.DIFF_DELETE:
                 index1 += len(data)
     # Strip the padding off.
     text = text[len(nullPadding):-len(nullPadding)]
-    self.pizda.append(self.pizda_curry_erase(0, len(nullPadding), self.view))
-    self.pizda.append(self.pizda_curry_erase(self.view.size()-len(nullPadding), self.view.size(), self.view))
     return (text, results)
 
   def patch_addPadding(self, patches):
