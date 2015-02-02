@@ -1,14 +1,20 @@
 # coding=utf-8
+__author__ = 'snowy'
+
 import logging
 import sublime
-
+import sublime_plugin
+from collections import namedtuple
+# import other
 from twisted.python import log
 
-from main import ViewAwareApplication, registry, RegistryEntry
-import reactor
+from reactor import reactor
 
 
-__author__ = 'snowy'
+registry = {}
+''':type registry: dict which maps "view_id" → (view's application, view's client_connection_string)'''
+
+RegistryEntry = namedtuple('RegistryEntry', ['application', 'connection_string'])
 
 
 class ViewIsNotInitializedError(Exception):
@@ -26,11 +32,13 @@ class RunServerCommand(sublime_plugin.TextCommand):
         """
         Начальная инициализация серверной части.
         """
+        from main import ViewAwareApplication
+
         app = ViewAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
-        log.msg('App is created for the view(id={0})'.format(self.view.id()))
-        global debugView
-        if not debugView:
-            debugView = self.view
+        log.msg('{1} is created for the view(id={0})'.format(self.view.id(), app.name))
+
+        # if not other.debugView:
+        #     debugView = self.view
 
         def _cb(client_connection_string):
             registry[self.view.id()] = RegistryEntry(app, client_connection_string)
@@ -50,7 +58,8 @@ class RunClientCommand(sublime_plugin.TextCommand):
             raise ClientConnectionStringIsNotInitializedError()
         app = registry[self.view.id()].application
         app.connectAsClientFromStr(connection_str) \
-            .addCallback(lambda ignore: log.msg('The client has connected to the view(id={0})'.format(self.view.id())))
+            .addCallback(
+            lambda ignore: log.msg('{1} has connected to the view(id={0})'.format(self.view.id(), app.name)))
 
 
 class NumberOfWindowsIsNotSupportedError(Exception):

@@ -16,3 +16,6 @@ class ReplayCommand(sublime_plugin.TextCommand):
 
         for curried_command in [curry_insert_command_later(i, char) for (i, char) in enumerate(text)]:
             curried_command()
+
+# debugView = None
+# ":type debugView: sublime.View"

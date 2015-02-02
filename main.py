@@ -1,15 +1,11 @@
 # coding=utf-8
+__author__ = 'snowy'
 
 import sublime_plugin
 import sublime
-from collections import namedtuple
-
-RegistryEntry = namedtuple('RegistryEntry', ['application', 'connection_string'])
 
 from core.core import *
-
-registry = {}
-''':type registry: dict which maps "view_id" → (view's application, view's client_connection_string)'''
+import init
 
 
 class ViewAwareApplication(Application):
@@ -24,11 +20,12 @@ class NotThatTypeOfCommandError(Exception):
     pass
 
 
-def process(edit, view, command):
-    type_command = command[0]
+def process(edit, view, command, null_padding_len):
+    assert null_padding_len >= 0
+    command_type = command[0]
     sublime_start = command[1]
     sublime_stop = command[2]
-    if type_command == 'insert':
+    if command_type == 'insert':
         text = command[3]
         delta = 0
         for char in text[:len(text) / 2]:
@@ -36,23 +33,26 @@ def process(edit, view, command):
                 delta += 1
         new_start = delta
         delta_end = 0
-        for char in text[len(text) / 2:][::-1]:
-            if char in u'\x01\x02\x03\x04':
+        for char in text[len(text) / 2:]:
+            if char in u'\x01\x02\x03\x04':  # todo: review, what if this characters would be inserted in original text?
                 delta_end += 1
         new_stop = delta_end
 
-        print ('insert', sublime_start + new_start - 4, sublime_stop - (new_start + new_stop),
-               text[new_start:-new_stop] if new_stop != 0 else text[new_start:])
-        view.replace(edit, sublime.Region(sublime_start + new_start - 4, sublime_stop - (new_start + new_stop)),
-                     text[new_start:-new_stop] if new_stop != 0 else text[new_start:])
-    elif type_command == 'erase':
-        print ('erase', sublime_start, sublime_stop, view.substr(sublime.Region(sublime_start, sublime_stop)))
-        view.erase(edit, sublime.Region(sublime_start, sublime_stop))
+        # отрезаем u'\x01\x02\x03\x04' из text
+        insertion_text = text[new_start:-new_stop] if new_stop != 0 else text[new_start:]
+        a = sublime_start + new_start - null_padding_len
+        b = sublime_stop - (new_start + new_stop)
+        region = sublime.Region(a, b)
+
+        print ('insert', region.a, region.b, insertion_text)
+        view.replace(edit, region, insertion_text)
+    elif command_type == 'erase':
+        assert command.size() < 4
+        region = sublime.Region(sublime_start, sublime_stop)
+        print ('erase', region.a, region.b, view.substr(region))
+        view.erase(edit, region)
     else:
         raise NotThatTypeOfCommandError()
-
-
-debugView = ''
 
 
 class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
@@ -71,8 +71,10 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
-        if debugView != self.view:  # todo: remove
-            return {'succeed': True}
+        # import other
+        #
+        # if other.debugView != self.view:  # todo: remove
+        #     return {'succeed': True}
 
         edit = self.view.begin_edit()
         try:
@@ -80,8 +82,7 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
                     logLevel=logging.DEBUG)
             respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch)
             for sublime_command in self.dmp.sublime_patch_commands:
-                print sublime_command
-                process(edit, self.view, sublime_command)
+                process(edit, self.view, sublime_command, self.dmp.sublime_null_padding_len)
             return respond
         finally:
             self.view.end_edit(edit)
@@ -94,8 +95,8 @@ class MainDispatcherListener(sublime_plugin.EventListener):
         Ивент, срабатывает каждый раз при редактировании текста. Запускает всю процедуру патчинга и отправки оповещений
         :param view: sublime.View
         """
-        if view.id() in registry:
-            app = registry[view.id()].application
+        if view.id() in init.registry:
+            app = init.registry[view.id()].application
             allTextRegion = sublime.Region(0, view.size())
             allText = view.substr(allTextRegion)
             app.algorithm.local_onTextChanged(allText).addErrback(self.cannot_apply_patch_eb)

@@ -78,13 +78,14 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         :param nextText: str текст, который является более новой версией текущего текст self.currentText
         """
         if self.clientProtocol is None:
+            log.msg('Client protocol is None', logLevel=logging.DEBUG)
             return ApplyPatchCommand.default_succeed_response
         patches = self.dmp.patch_make(self.currentText, nextText)
         self.currentText = nextText
         serialized = self.dmp.patch_toText(patches)
         patchIsNotEmptyAndWeHaveClients = serialized and self.clientProtocol is not None
         if patchIsNotEmptyAndWeHaveClients:
-            log.msg('{0} sending patch:\n<patch>\n{1}\n</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
+            log.msg('{0} sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
             return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
         return ApplyPatchCommand.default_succeed_response
 
