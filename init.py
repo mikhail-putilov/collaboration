@@ -35,7 +35,7 @@ class RunServerCommand(sublime_plugin.TextCommand):
         from main import ViewAwareApplication
 
         app = ViewAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
-        log.msg('{1} is created for the view(id={0})'.format(self.view.id(), app.name))
+        log.msg('{0} is created'.format(app.name))
 
         # if not other.debugView:
         #     debugView = self.view
@@ -59,7 +59,7 @@ class RunClientCommand(sublime_plugin.TextCommand):
         app = registry[self.view.id()].application
         app.connectAsClientFromStr(connection_str) \
             .addCallback(
-            lambda ignore: log.msg('{1} has connected to the view(id={0})'.format(self.view.id(), app.name)))
+            lambda ignore: log.msg('{0} has connected to {1}'.format(app.name, connection_str)))
 
 
 class NumberOfWindowsIsNotSupportedError(Exception):

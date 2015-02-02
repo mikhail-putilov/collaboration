@@ -78,14 +78,14 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         :param nextText: str текст, который является более новой версией текущего текст self.currentText
         """
         if self.clientProtocol is None:
-            log.msg('Client protocol is None', logLevel=logging.DEBUG)
+            log.msg('client protocol is None', logLevel=logging.DEBUG)
             return ApplyPatchCommand.default_succeed_response
         patches = self.dmp.patch_make(self.currentText, nextText)
         self.currentText = nextText
         serialized = self.dmp.patch_toText(patches)
         patchIsNotEmptyAndWeHaveClients = serialized and self.clientProtocol is not None
         if patchIsNotEmptyAndWeHaveClients:
-            log.msg('{0} sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
+            log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
             return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
         return ApplyPatchCommand.default_succeed_response
 
@@ -94,10 +94,10 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         _patch = self.dmp.patch_fromText(patch)
         patchedText, result = self.dmp.patch_apply(_patch, self.currentText)
         if False in result:
-            log.msg('{0} remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
+            log.msg('{0}: remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
             raise PatchIsNotApplicableException()
         self.currentText = patchedText
-        log.msg('{0} remote patch applied. Now text is: {1}'.format(self.name, self.currentText), logLevel=logging.DEBUG)
+        log.msg('{0}: remote patch applied'.format(self.name), logLevel=logging.DEBUG)
         return {'succeed': True}
 
     @GetTextCommand.responder
