@@ -50,6 +50,7 @@ class ApplyPatchCommand(Command):
         PatchIsNotApplicableException: 'Патч не может быть применен',
         UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review
     }
+    requiresAnswer = True
 
 
 class DiffMatchPatchAlgorithm(CommandLocator):

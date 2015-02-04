@@ -15,6 +15,7 @@ registry = {}
 ''':type registry: dict which maps "view_id" → (view's application, view's client_connection_string)'''
 
 RegistryEntry = namedtuple('RegistryEntry', ['application', 'connection_string'])
+running = False
 
 
 class ViewIsNotInitializedError(Exception):
@@ -81,6 +82,8 @@ class ConnectTwoWindows(sublime_plugin.TextCommand):
         for window in windows:
             window.active_view().run_command('run_server')
         self.connectToEachOther(windows[0], windows[1])
+        global running
+        running = True
 
     @staticmethod
     def connectToEachOther(window1, window2):
@@ -105,6 +108,8 @@ class ConnectTwoViewsCommand(sublime_plugin.TextCommand):
         for view in views:
             view.run_command('run_server')
         self.connectToEachOther(views[0], views[1])
+        global running
+        running = True
 
     @staticmethod
     def connectToEachOther(view1, view2):

@@ -1,4 +1,6 @@
 # coding=utf-8
+import other
+
 __author__ = 'snowy'
 
 import sublime_plugin
@@ -36,13 +38,8 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
         self.ownerApplication = ownerApplication
         ":type ownerApplication: ViewAwareApplication"
 
-    @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
-        # import other
-        #
-        # if other.debugView != self.view:  # todo: remove
-        # return {'succeed': True}
-
+        print "remote!"
         edit = self.view.begin_edit()
         try:
             log.msg('{0}: <before>{1}</before>'.format(self.name, self.currentText),
@@ -55,6 +52,7 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
             self.view.end_edit(edit)
             log.msg('{0}: <after>{1}</after>'.format(self.name, self.view.substr(sublime.Region(0, self.view.size()))),
                     logLevel=logging.DEBUG)
+
 
     def process_sublime_command(self, edit, command):
         """
@@ -114,10 +112,14 @@ class MainDispatcherListener(sublime_plugin.EventListener):
             app = init.registry[view.id()].application
             allTextRegion = sublime.Region(0, view.size())
             allText = view.substr(allTextRegion)
-            app.algorithm.local_onTextChanged(allText).addErrback(self.cannot_apply_patch_eb)
+            app.algorithm.local_onTextChanged(allText) \
+                .addCallbacks(self.debug, self.log_any_failure_and_errmsg_eb)
+
+    def debug(self, result):
+        log.msg('debug!', logLevel=logging.DEBUG)
 
     # noinspection PyMethodMayBeStatic
-    def cannot_apply_patch_eb(self, failure):
+    def log_any_failure_and_errmsg_eb(self, failure):
         """
         В случае, если не получается apply patch, то выводим сообщение об ошибке, а не умираем тихо
         :param failure: twisted.python.Failure
