@@ -15,7 +15,7 @@ class ReplayCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text=''):
         def curry_insert_command_later(_index, _inserted_char):
-            invoked_later_command = lambda: self.view.insert(edit, _index, _inserted_char)
+            invoked_later_command = lambda: self.view.insert(edit, self.view.size(), _inserted_char)
             return lambda: sublime.set_timeout(invoked_later_command, _index * 200)
 
         for curried_command in [curry_insert_command_later(i, char) for (i, char) in enumerate(text)]:
@@ -36,6 +36,3 @@ def supervisor(result):
             for i in range(len(views)):
                 log.err('{0} text is: {1}'.format(appNames[i], texts[i]))
     return result
-
-# debugView = None
-# ":type debugView: sublime.View"

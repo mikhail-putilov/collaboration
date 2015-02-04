@@ -1,13 +1,14 @@
 # coding=utf-8
 import logging
+
 from twisted.protocols.amp import Command, Unicode, Boolean, CommandLocator
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory
 from twisted.protocols.amp import AMP
+from twisted.python import log
 
 from libs.dmp import diff_match_patch
-from twisted.python import log
 
 
 __author__ = 'snowy'
@@ -45,7 +46,7 @@ class GetTextCommand(Command):
 class ApplyPatchCommand(Command):
     arguments = [('patch', Patch())]
     response = [('succeed', Boolean())]
-    default_succeed_response = defer.succeed(True)
+    default_succeed_response = defer.succeed({'succeed': True})
     errors = {
         PatchIsNotApplicableException: 'Патч не может быть применен',
         UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review
@@ -79,9 +80,11 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         :param nextText: str текст, который является более новой версией текущего текст self.currentText
         """
         if self.clientProtocol is None:
-            log.msg('client protocol is None', logLevel=logging.DEBUG)
+            log.msg('Client protocol is None', logLevel=logging.DEBUG)
             return ApplyPatchCommand.default_succeed_response
         patches = self.dmp.patch_make(self.currentText, nextText)
+        if not patches:
+            return ApplyPatchCommand.default_succeed_response
         self.currentText = nextText
         serialized = self.dmp.patch_toText(patches)
         patchIsNotEmptyAndWeHaveClients = serialized and self.clientProtocol is not None
@@ -97,8 +100,11 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         if False in result:
             log.msg('{0}: remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
             raise PatchIsNotApplicableException()
+        log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
+                logLevel=logging.DEBUG)
         self.currentText = patchedText
-        log.msg('{0}: remote patch applied'.format(self.name), logLevel=logging.DEBUG)
+        log.msg('{0}: <after.model>{1}</after.model>'.format(self.name, self.currentText),
+                logLevel=logging.DEBUG)
         return {'succeed': True}
 
     @GetTextCommand.responder

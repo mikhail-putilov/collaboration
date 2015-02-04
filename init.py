@@ -5,7 +5,6 @@ import logging
 import sublime
 import sublime_plugin
 from collections import namedtuple
-# import other
 from twisted.python import log
 
 from reactor import reactor
@@ -37,9 +36,6 @@ class RunServerCommand(sublime_plugin.TextCommand):
 
         app = ViewAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
         log.msg('{0} is created'.format(app.name))
-
-        # if not other.debugView:
-        #     debugView = self.view
 
         def _cb(client_connection_string):
             registry[self.view.id()] = RegistryEntry(app, client_connection_string)
@@ -110,6 +106,7 @@ class ConnectTwoViewsCommand(sublime_plugin.TextCommand):
         self.connectToEachOther(views[0], views[1])
         global running
         running = True
+        sublime.run_command('start_collaboration_listening')
 
     @staticmethod
     def connectToEachOther(view1, view2):
@@ -119,3 +116,51 @@ class ConnectTwoViewsCommand(sublime_plugin.TextCommand):
 
         _connect(view1, view2)
         _connect(view2, view1)
+
+
+def run_every_second():
+    for view_id in registry:
+        app = registry[view_id].application
+        allTextRegion = sublime.Region(0, app.view.size())
+        allText = app.view.substr(allTextRegion)
+        app.algorithm.local_onTextChanged(allText) \
+            .addErrback(log_any_failure_and_errmsg_eb)
+
+
+def log_any_failure_and_errmsg_eb(failure):
+    """
+    В случае, если не получается apply patch, то выводим сообщение об ошибке, а не умираем тихо
+    :param failure: twisted.python.Failure
+    """
+    failure.trap(Exception)
+    log.err(failure)
+    sublime.error_message(str(failure))
+    sublime.run_command('stop_collaboration_listening')
+    sublime.run_command('terminate_collaboration')
+
+
+# noinspection PyMethodMayBeStatic
+class TerminateCollaborationCommand(sublime_plugin.ApplicationCommand):
+    def run(self):
+        global registry
+        for entry in registry:
+            del registry[entry].application
+        del registry
+        registry = {}
+
+from twisted.internet import task
+l = task.LoopingCall(run_every_second)
+
+
+# noinspection PyMethodMayBeStatic
+class StartCollaborationListeningCommand(sublime_plugin.ApplicationCommand):
+    def run(self):
+        if not l.running:
+            l.start(1.0)
+
+
+# noinspection PyMethodMayBeStatic
+class StopCollaborationListeningCommand(sublime_plugin.ApplicationCommand):
+    def run(self):
+        if l.running:
+            l.stop()

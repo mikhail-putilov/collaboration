@@ -1,13 +1,10 @@
 # coding=utf-8
-import other
 
 __author__ = 'snowy'
 
-import sublime_plugin
 import sublime
 
 from core.core import *
-import init
 
 
 class ViewAwareApplication(Application):
@@ -38,11 +35,11 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
         self.ownerApplication = ownerApplication
         ":type ownerApplication: ViewAwareApplication"
 
+    @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):
-        print "remote!"
         edit = self.view.begin_edit()
         try:
-            log.msg('{0}: <before>{1}</before>'.format(self.name, self.currentText),
+            log.msg('{0}: <before.view>{1}</before.view>'.format(self.name, self.view.substr(sublime.Region(0, self.view.size()))),
                     logLevel=logging.DEBUG)
             respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch)
             for sublime_command in self.dmp.sublime_patch_commands:
@@ -50,9 +47,8 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
             return respond
         finally:
             self.view.end_edit(edit)
-            log.msg('{0}: <after>{1}</after>'.format(self.name, self.view.substr(sublime.Region(0, self.view.size()))),
+            log.msg('{0}: <after.view>{1}</after.view>'.format(self.name, self.view.substr(sublime.Region(0, self.view.size()))),
                     logLevel=logging.DEBUG)
-
 
     def process_sublime_command(self, edit, command):
         """
@@ -70,60 +66,31 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
 
         if command_type == 'insert':
             text = command[3]
-            delta = 0
+            real_left_padding = 0
             for char in text[:len(text) / 2]:
                 if char in u'\x01\x02\x03\x04':
-                    delta += 1
-            new_start = delta
-            delta_end = 0
+                    real_left_padding += 1
+
+            real_right_padding = 0
             for char in text[len(text) / 2:]:
                 # todo: review, what if this characters would be inserted in original text?
                 if char in u'\x01\x02\x03\x04':
-                    delta_end += 1
-            new_stop = delta_end
+                    real_right_padding += 1
 
             # отрезаем u'\x01\x02\x03\x04' из text
-            insertion_text = text[new_start:-new_stop] if new_stop != 0 else text[new_start:]
-            a = sublime_start + new_start - null_padding_len
-            b = sublime_stop - (new_start + new_stop)
+            insertion_text = text[real_left_padding:-real_right_padding] if real_right_padding != 0 else text[real_left_padding:]
+            a = sublime_start - null_padding_len + real_left_padding
+            b = sublime_stop - null_padding_len - real_right_padding
             region = sublime.Region(a, b)
 
-            print ('insert', region.a, region.b, insertion_text)
+            print ('replace({0},{1})'.format(region.a, region.b), self.view.substr(region), '--->', insertion_text)
             self.view.replace(edit, region, insertion_text)
 
         elif command_type == 'erase':
             assert command.size() < 4
             region = sublime.Region(sublime_start, sublime_stop)
-            print ('erase', region.a, region.b, self.view.substr(region))
+            print ('erase({0},{1})'.format(region.a, region.b), '--->', self.view.substr(region))
             self.view.erase(edit, region)
 
         else:
             raise NotThatTypeOfCommandError()
-
-
-# noinspection PyClassHasNoInit
-class MainDispatcherListener(sublime_plugin.EventListener):
-    def on_modified(self, view):
-        """
-        Ивент, срабатывает каждый раз при редактировании текста. Запускает всю процедуру патчинга и отправки оповещений
-        :param view: sublime.View
-        """
-        if view.id() in init.registry:
-            app = init.registry[view.id()].application
-            allTextRegion = sublime.Region(0, view.size())
-            allText = view.substr(allTextRegion)
-            app.algorithm.local_onTextChanged(allText) \
-                .addCallbacks(self.debug, self.log_any_failure_and_errmsg_eb)
-
-    def debug(self, result):
-        log.msg('debug!', logLevel=logging.DEBUG)
-
-    # noinspection PyMethodMayBeStatic
-    def log_any_failure_and_errmsg_eb(self, failure):
-        """
-        В случае, если не получается apply patch, то выводим сообщение об ошибке, а не умираем тихо
-        :param failure: twisted.python.Failure
-        """
-        failure.trap(Exception)
-        log.err(failure)
-        sublime.error_message(str(failure))
