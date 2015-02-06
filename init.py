@@ -1,4 +1,8 @@
 # coding=utf-8
+"""
+Модуль начальной инициализации sublime плагина. Включает в себя в основном наследников sublime_plugin.TextCommand.
+Логически является специфичной sublime оберткой над main модулем.
+"""
 from other import supervisor_for_2column_layout
 
 __author__ = 'snowy'
@@ -69,7 +73,6 @@ class RunClientCommand(sublime_plugin.TextCommand):
             global running
             running = True
             sublime.run_command('start_collaboration_listening')
-
 
 
 class NumberOfWindowsIsNotSupportedError(Exception):

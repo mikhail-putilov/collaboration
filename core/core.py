@@ -1,4 +1,8 @@
 # coding=utf-8
+"""
+Основная функциональность. Инкапсулировано от sublime.
+Вся бизнес-работа выполняется на основе diff_match_patch объекта.
+"""
 import logging
 
 from twisted.protocols.amp import Command, Unicode, Boolean, CommandLocator

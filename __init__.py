@@ -1,3 +1,7 @@
+# coding=utf-8
+"""
+Плагин collaboration для совместной работы над файлами. Позволяет редактировать файлы совместно в стиле google-docs.
+"""
 __author__ = 'snowy'
 import os
 import sys
