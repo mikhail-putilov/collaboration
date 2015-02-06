@@ -47,6 +47,7 @@ class ApplyPatchCommand(Command):
     arguments = [('patch', Patch())]
     response = [('succeed', Boolean())]
     default_succeed_response = defer.succeed({'succeed': True})
+    no_work_is_done_response = defer.succeed({'succeed': None, 'no_work_is_done': True})
     errors = {
         PatchIsNotApplicableException: 'Патч не может быть применен',
         UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review
@@ -81,17 +82,17 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         """
         if self.clientProtocol is None:
             log.msg('Client protocol is None', logLevel=logging.DEBUG)
-            return ApplyPatchCommand.default_succeed_response
+            return ApplyPatchCommand.no_work_is_done_response
         patches = self.dmp.patch_make(self.currentText, nextText)
         if not patches:
-            return ApplyPatchCommand.default_succeed_response
+            return ApplyPatchCommand.no_work_is_done_response
         self.currentText = nextText
         serialized = self.dmp.patch_toText(patches)
         patchIsNotEmptyAndWeHaveClients = serialized and self.clientProtocol is not None
         if patchIsNotEmptyAndWeHaveClients:
             log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
             return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
-        return ApplyPatchCommand.default_succeed_response
+        return ApplyPatchCommand.no_work_is_done_response
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch):

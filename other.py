@@ -1,4 +1,5 @@
 from twisted.python import log
+from libs.dmp.diff_match_patch import diff_match_patch
 
 
 __author__ = 'snowy'
@@ -22,17 +23,25 @@ class ReplayCommand(sublime_plugin.TextCommand):
             curried_command()
 
 
-def supervisor(result):
+class ViewsDivergeException(Exception):
+    pass
+
+
+def supervisor_for_2column_layout(result):
+    if 'no_work_is_done' in result:
+        return result
+
     if init.running:
         views = sublime.active_window().views()
         assert len(views) == 2
-        appNames = [init.registry[view.id()].application.name for view in views]
+        dmp = diff_match_patch()
         texts = [view.substr(sublime.Region(0, view.size())) for view in views]
+        patches = dmp.patch_make(texts[0], texts[1])
 
-        if set(texts) != 1:
-            sublime.error_message("Views diverge, see back log")
-            init.running = False
-            init.registry.clear()
+        if patches:
+            diff_text = dmp.patch_toText(patches)
+            appNames = [init.registry[view.id()].application.name for view in views]
             for i in range(len(views)):
-                log.err('{0} text is: {1}'.format(appNames[i], texts[i]))
+                log.err('Error: {0} text is: {1}'.format(appNames[i], texts[i]))
+            raise ViewsDivergeException('Views diverge. The diff between texts is:\n{0}'.format(diff_text))
     return result
