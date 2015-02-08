@@ -162,6 +162,8 @@ class Collaboration(sublime_plugin.ApplicationCommand):
         elif start_or_stop == 'stop':
             if self.run_every_second_task.running:
                 self.run_every_second_task.stop()
+                global running
+                running = False
         else:
             raise StartOrStopArgumentIllegalValues('Available values are "start" or "stop".')
 
