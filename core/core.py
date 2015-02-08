@@ -11,6 +11,7 @@ from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory
 from twisted.protocols.amp import AMP
 from twisted.python import log
+import history
 
 from libs.dmp import diff_match_patch
 
@@ -51,20 +52,21 @@ class ApplyPatchCommand(Command):
     arguments = [('patch', Patch())]
     response = [('succeed', Boolean())]
     default_succeed_response = defer.succeed({'succeed': True})
-    no_work_is_done_response = defer.succeed({'succeed': None, 'no_work_is_done': True})
+    no_work_is_done_response = defer.succeed({'succeed': None, 'no_work_is_done': True})  # todo: review no work is done
     errors = {
         PatchIsNotApplicableException: 'Патч не может быть применен',
-        UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review
+        UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review unicode
     }
     requiresAnswer = True
 
 
 class DiffMatchPatchAlgorithm(CommandLocator):
-    def __init__(self, initialText='', clientProtocol=None, name=''):
+    def __init__(self, history_line, initialText='', clientProtocol=None, name=''):
         self.name = name
         self.clientProtocol = clientProtocol
         self.currentText = initialText
         self.dmp = diff_match_patch()
+        self.history_line = history_line
 
     @property
     def local_text(self):
@@ -150,7 +152,8 @@ class Application(object):
         self.clientFactory = None
         self.serverPort = None
         self.clientProtocol = None
-        self.locator = DiffMatchPatchAlgorithm(clientProtocol=self.clientProtocol, name=name)
+        self.history_line = history.HistoryLine(self)
+        self.locator = DiffMatchPatchAlgorithm(self.history_line, clientProtocol=self.clientProtocol, name=name)
 
     @property
     def serverPortNumber(self):
@@ -173,6 +176,7 @@ class Application(object):
         :type serverConnString: str строка подключения для serverFromString
         :return : defer.Deferred
         """
+        self.history_line.clean()
         self.serverEndpoint = serverFromString(self.reactor, serverConnString)
         savePort = lambda p: save(self, 'serverPort', p)  # given port
         self.serverFactory = Factory.forProtocol(lambda: AMP(locator=locator))

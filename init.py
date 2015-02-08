@@ -3,7 +3,7 @@
 Модуль начальной инициализации sublime плагина. Включает в себя в основном наследников sublime_plugin.TextCommand.
 Логически является специфичной sublime оберткой над main модулем.
 """
-from other import supervisor_for_2column_layout
+from libs.dmp import diff_match_patch
 
 __author__ = 'snowy'
 
@@ -17,7 +17,7 @@ from reactor import reactor
 
 
 registry = {}
-''':type registry: dict which maps "view_id" → (view's application, view's client_connection_string)'''
+""":type registry: dict that maps "view_id" → "RegistryEntry" """
 
 RegistryEntry = namedtuple('RegistryEntry', ['application', 'connection_string'])
 running = False
@@ -72,7 +72,7 @@ class RunClientCommand(sublime_plugin.TextCommand):
         if init:
             global running
             running = True
-            sublime.run_command('start_collaboration_listening')
+            sublime.run_command('collaboration', {'start_or_stop': 'start'})
 
 
 class NumberOfWindowsIsNotSupportedError(Exception):
@@ -135,15 +135,65 @@ class ConnectTwoViewsCommand(sublime_plugin.TextCommand):
         _connect(view2, view1, True)
 
 
-def run_every_second():
-    """Функция, которая запускает синхронизацию между view"""
-    for view_id in registry:
-        app = registry[view_id].application
-        allTextRegion = sublime.Region(0, app.view.size())
-        allText = app.view.substr(allTextRegion)
-        app.algorithm.local_onTextChanged(allText) \
-            .addCallback(supervisor_for_2column_layout) \
-            .addErrback(log_any_failure_and_errmsg_eb)
+class StartOrStopFlagMustBeSetException(Exception):
+    pass
+
+
+class StartOrStopArgumentIllegalValues(Exception):
+    pass
+
+
+class ViewsDivergeException(Exception):
+    pass
+
+
+class Collaboration(sublime_plugin.ApplicationCommand):
+    def __init__(self):
+        from twisted.internet import task
+
+        self.run_every_second_task = task.LoopingCall(self.run_every_second)
+
+    def run(self, start_or_stop=None):
+        if start_or_stop is None:
+            raise StartOrStopFlagMustBeSetException('Available values are "start" or "stop".')
+        if start_or_stop == 'start':
+            if not self.run_every_second_task.running:
+                self.run_every_second_task.start(1.0)
+        elif start_or_stop == 'stop':
+            if self.run_every_second_task.running:
+                self.run_every_second_task.stop()
+        else:
+            raise StartOrStopArgumentIllegalValues('Available values are "start" or "stop".')
+
+    def supervisor_for_2column_layout(self, result):
+        if 'no_work_is_done' in result:
+            return result
+
+        global running
+        if running:
+            views = sublime.active_window().views()
+            assert len(views) == 2
+            dmp = diff_match_patch()
+            texts = [view.substr(sublime.Region(0, view.size())) for view in views]
+            patches = dmp.patch_make(texts[0], texts[1])
+
+            if patches:
+                diff_text = dmp.patch_toText(patches)
+                appNames = [registry[view.id()].application.name for view in views]
+                for i in range(len(views)):
+                    log.err('Error: {0} text is: {1}'.format(appNames[i], texts[i]))
+                raise ViewsDivergeException('Views diverge. The diff between texts is:\n{0}'.format(diff_text))
+        return result
+
+    def run_every_second(self):
+        """Функция, которая запускает синхронизацию между view"""
+        for view_id in registry:
+            app = registry[view_id].application
+            allTextRegion = sublime.Region(0, app.view.size())
+            allText = app.view.substr(allTextRegion)
+            app.algorithm.local_onTextChanged(allText) \
+                .addCallback(self.supervisor_for_2column_layout) \
+                .addErrback(log_any_failure_and_errmsg_eb)
 
 
 def log_any_failure_and_errmsg_eb(failure):
@@ -154,7 +204,7 @@ def log_any_failure_and_errmsg_eb(failure):
     failure.trap(Exception)
     log.err(failure)
     sublime.error_message(str(failure))
-    sublime.run_command('stop_collaboration_listening')
+    sublime.run_command('collaboration', {'start_or_stop': 'stop'})
     sublime.run_command('terminate_collaboration')
 
 
@@ -164,22 +214,3 @@ class TerminateCollaborationCommand(sublime_plugin.ApplicationCommand):
         global registry
         del registry
         registry = {}
-
-
-from twisted.internet import task
-
-run_every_second_task = task.LoopingCall(run_every_second)
-
-
-# noinspection PyMethodMayBeStatic
-class StartCollaborationListeningCommand(sublime_plugin.ApplicationCommand):
-    def run(self):
-        if not run_every_second_task.running:
-            run_every_second_task.start(1.0)
-
-
-# noinspection PyMethodMayBeStatic
-class StopCollaborationListeningCommand(sublime_plugin.ApplicationCommand):
-    def run(self):
-        if run_every_second_task.running:
-            run_every_second_task.stop()
