@@ -3,6 +3,8 @@
 Модуль начальной инициализации sublime плагина. Включает в себя в основном наследников sublime_plugin.TextCommand.
 Логически является специфичной sublime оберткой над main модулем.
 """
+import time
+from core.core import PatchIsNotApplicableException
 from libs.dmp import diff_match_patch
 
 __author__ = 'snowy'
@@ -36,7 +38,7 @@ class RunServerCommand(sublime_plugin.TextCommand):
     # noinspection PyUnusedLocal
     def run(self, edit):
         """
-        Начальная инициализация серверной части.
+        Начальная инициализация серверной части. Включая таймер.
         """
         from main import ViewAwareApplication
 
@@ -167,8 +169,14 @@ class Collaboration(sublime_plugin.ApplicationCommand):
         else:
             raise StartOrStopArgumentIllegalValues('Available values are "start" or "stop".')
 
-    def supervisor_for_2column_layout(self, result):
-        if 'no_work_is_done' in result:
+    def supervisor_for_2column_layout(self, result):  # todo: доделать debug режим
+        """
+        Метод, проверяющий, что в обоих окнах один и тот же текст, а если нет - поднимает исключение
+        Сейчас не используется.
+        :param result:
+        :return: :raise ViewsDivergeException:
+        """
+        if result is None or 'no_work_is_done' in result:
             return result
 
         global running
@@ -194,8 +202,8 @@ class Collaboration(sublime_plugin.ApplicationCommand):
             allTextRegion = sublime.Region(0, app.view.size())
             allText = app.view.substr(allTextRegion)
             app.algorithm.local_onTextChanged(allText) \
-                .addCallback(self.supervisor_for_2column_layout) \
-                .addErrback(log_any_failure_and_errmsg_eb)
+                .addErrback(log_any_failure_and_errmsg_eb) \
+                # .addCallback(self.supervisor_for_2column_layout) \
 
 
 def log_any_failure_and_errmsg_eb(failure):
@@ -204,8 +212,7 @@ def log_any_failure_and_errmsg_eb(failure):
     :param failure: twisted.python.Failure
     """
     failure.trap(Exception)
-    log.err(failure)
-    sublime.error_message(str(failure))
+    sublime.error_message(failure.getErrorMessage() if failure else 'No failure message is found')
     sublime.run_command('collaboration', {'start_or_stop': 'stop'})
     sublime.run_command('terminate_collaboration')
 
