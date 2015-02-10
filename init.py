@@ -40,9 +40,9 @@ class RunServerCommand(sublime_plugin.TextCommand):
         """
         Начальная инициализация серверной части. Включая таймер.
         """
-        from main import ViewAwareApplication
+        from main import SublimeAwareApplication
 
-        app = ViewAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
+        app = SublimeAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
         log.msg('{0} is created'.format(app.name))
 
         def _cb(client_connection_string):
