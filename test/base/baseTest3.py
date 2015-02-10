@@ -7,9 +7,11 @@ from twisted.internet.endpoints import clientFromString, serverFromString
 from twisted.internet.protocol import Factory
 from twisted.protocols.amp import AMP
 from twisted.trial import unittest
-from core.core import DiffMatchPatchAlgorithm, GetTextCommand, save
 from twisted.python import log
 
+from core.core import DiffMatchPatchAlgorithm
+from core.other import save
+from core.command import GetTextCommand
 import test.base.constants as constants
 
 
@@ -23,7 +25,8 @@ class BaseTest(unittest.TestCase):
         :return : defer.Deferred
         """
         self.serverEndpoint = serverFromString(self.reactor, b'tcp:9879')
-        factory = Factory.forProtocol(lambda: AMP(locator=DiffMatchPatchAlgorithm(constants.initialText)))
+        factory = Factory.forProtocol(
+            lambda: AMP(locator=DiffMatchPatchAlgorithm(None, initialText=constants.initialText)))
         savePort = lambda p: save(self, 'serverPort', p)  # given port
         return self.serverEndpoint.listen(factory).addCallback(savePort)
 
@@ -54,8 +57,7 @@ class BaseTest(unittest.TestCase):
         Тестирование последовательного изменения текста с блокировками (пока не будет применены изменения на сервере,
         клиент ждет)
         """
-        alg = DiffMatchPatchAlgorithm(constants.textVersionSeq[0])
-        alg.clientProtocol = self.clientProtocol
+        alg = DiffMatchPatchAlgorithm(None, initialText=constants.textVersionSeq[0], clientProtocol=self.clientProtocol)
         # emulate editing text
         d = defer.succeed(None)
         for newTextVersion in constants.textVersionSeq[1:]:

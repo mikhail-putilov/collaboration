@@ -7,57 +7,21 @@ import logging
 import time
 
 import ntplib
-from twisted.protocols.amp import Command, Unicode, Boolean, CommandLocator, Float
+from twisted.protocols.amp import CommandLocator
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory
 from twisted.protocols.amp import AMP
 from twisted.python import log
 
-import history
+from command import *
+from exceptions import *
+from other import save
 from libs.dmp import diff_match_patch
+import history
 
 
 __author__ = 'snowy'
-
-
-def print_it(arg):
-    print arg
-    return arg
-
-
-def save(self, key, value):
-    setattr(self, key, value)
-    return value
-
-
-class Patch(Unicode):
-    pass
-
-
-class NoTextAvailableException(Exception):
-    pass
-
-
-class PatchIsNotApplicableException(Exception):
-    pass
-
-
-class GetTextCommand(Command):
-    response = [('text', Unicode())]
-    errors = {NoTextAvailableException: 'Невозможно получить текст'}
-
-
-class ApplyPatchCommand(Command):
-    arguments = [('patch', Patch()), ('timestamp', Float())]
-    response = [('succeed', Boolean())]
-    default_succeed_response = defer.succeed({'succeed': True})
-    no_work_is_done_response = defer.succeed({'succeed': None, 'no_work_is_done': True})  # todo: review no work is done
-    errors = {
-        PatchIsNotApplicableException: 'Патч не может быть применен',
-        UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review unicode
-    }
-    requiresAnswer = True
 
 
 class DiffMatchPatchAlgorithm(CommandLocator):
@@ -70,6 +34,29 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         c = ntplib.NTPClient()
         response = c.request('europe.pool.ntp.org', version=3)
         self.global_delta = response.tx_time - time.time()
+
+    def _get_current_timestamp(self):
+        if self.global_delta is None:
+            self.global_delta = self._get_global_delta()
+        return time.time() + self.global_delta
+
+    @staticmethod
+    def _get_global_delta():
+        c = ntplib.NTPClient()
+        response = c.request('europe.pool.ntp.org', version=3, timeout=10)
+        return response.tx_time - time.time()
+
+    def _alter_forward_lamport_time(self, delta_time):
+        """
+        Подкрутить время вперед на часах Лампорта
+        :param delta_time: float время в секундах (доли тоже считаются)
+        :raise GlobalDeltaIsNotInited:
+        """
+        assert delta_time > 0
+        if self.global_delta is None:
+            raise GlobalDeltaIsNotInitedException('Field "self.global_delta" must be inited before.'
+                                                  'Set it with _get_global_delta method')
+        self.global_delta += delta_time
 
     @property
     def local_text(self):
@@ -115,7 +102,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         patchedText, result = self.dmp.patch_apply(_patch, self.currentText)
         if False in result:
             log.msg('{0}: remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
-            raise PatchIsNotApplicableException('Hop hey la-la-ley!')
+            raise PatchIsNotApplicableException()
 
         log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
                 logLevel=logging.DEBUG)
@@ -148,10 +135,6 @@ class NetworkApplicationConfig(object):
     def appendClientPort(self, port):
         self.clientConnString += ':port={0}'.format(port)
         return self
-
-
-class ServerPortIsNotInitializedError(Exception):
-    pass
 
 
 class Application(object):
