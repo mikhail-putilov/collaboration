@@ -4,15 +4,17 @@
 Вся бизнес-работа выполняется на основе diff_match_patch объекта.
 """
 import logging
+import time
 
-from twisted.protocols.amp import Command, Unicode, Boolean, CommandLocator
+import ntplib
+from twisted.protocols.amp import Command, Unicode, Boolean, CommandLocator, Float
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory
 from twisted.protocols.amp import AMP
 from twisted.python import log
-import history
 
+import history
 from libs.dmp import diff_match_patch
 
 
@@ -33,14 +35,12 @@ class Patch(Unicode):
     pass
 
 
-class NoTextAvailableException:
-    def __init__(self):
-        pass
+class NoTextAvailableException(Exception):
+    pass
 
 
-class PatchIsNotApplicableException:
-    def __init__(self):
-        pass
+class PatchIsNotApplicableException(Exception):
+    pass
 
 
 class GetTextCommand(Command):
@@ -49,7 +49,7 @@ class GetTextCommand(Command):
 
 
 class ApplyPatchCommand(Command):
-    arguments = [('patch', Patch())]
+    arguments = [('patch', Patch()), ('timestamp', Float())]
     response = [('succeed', Boolean())]
     default_succeed_response = defer.succeed({'succeed': True})
     no_work_is_done_response = defer.succeed({'succeed': None, 'no_work_is_done': True})  # todo: review no work is done
@@ -67,6 +67,9 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         self.currentText = initialText
         self.dmp = diff_match_patch()
         self.history_line = history_line
+        c = ntplib.NTPClient()
+        response = c.request('europe.pool.ntp.org', version=3)
+        self.global_delta = response.tx_time - time.time()
 
     @property
     def local_text(self):
@@ -84,32 +87,41 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         """
         Установить текст, посчитать дельту, отправить всем участникам сети патч
         :rtype : defer.Deferred с результатом команды ApplyPatchCommand
-        :param nextText: str текст, который является более новой версией текущего текст self.currentText
+        :param nextText: str текст, который является более новой версией текущего текста self.currentText
         """
-        if self.clientProtocol is None:
-            log.msg('Client protocol is None', logLevel=logging.DEBUG)
-            return ApplyPatchCommand.no_work_is_done_response
         patches = self.dmp.patch_make(self.currentText, nextText)
         if not patches:
             return ApplyPatchCommand.no_work_is_done_response
+
         self.currentText = nextText
+
+        if self.clientProtocol is None:
+            log.msg('Client protocol is None', logLevel=logging.DEBUG)
+            return ApplyPatchCommand.no_work_is_done_response
+
         serialized = self.dmp.patch_toText(patches)
-        patchIsNotEmptyAndWeHaveClients = serialized and self.clientProtocol is not None
-        if patchIsNotEmptyAndWeHaveClients:
+
+        patch_is_not_empty_and_we_have_clients = serialized and self.clientProtocol is not None
+        if patch_is_not_empty_and_we_have_clients:
             log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
-            return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized)
+            return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized,
+                                                  timestamp=time.time() + self.global_delta)
+
         return ApplyPatchCommand.no_work_is_done_response
 
     @ApplyPatchCommand.responder
-    def remote_applyPatch(self, patch):
+    def remote_applyPatch(self, patch, timestamp):
         _patch = self.dmp.patch_fromText(patch)
         patchedText, result = self.dmp.patch_apply(_patch, self.currentText)
         if False in result:
             log.msg('{0}: remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
-            raise PatchIsNotApplicableException()
+            raise PatchIsNotApplicableException('Hop hey la-la-ley!')
+
         log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
                 logLevel=logging.DEBUG)
+
         self.currentText = patchedText
+
         log.msg('{0}: <after.model>{1}</after.model>'.format(self.name, self.currentText),
                 logLevel=logging.DEBUG)
         return {'succeed': True}
@@ -152,7 +164,7 @@ class Application(object):
         self.clientFactory = None
         self.serverPort = None
         self.clientProtocol = None
-        self.history_line = history.HistoryLine(self)
+        self.history_line = history.HistoryLine(self)  # todo: maybe remove history
         self.locator = DiffMatchPatchAlgorithm(self.history_line, clientProtocol=self.clientProtocol, name=name)
 
     @property

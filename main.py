@@ -7,7 +7,6 @@
 __author__ = 'snowy'
 
 import sublime
-
 from core.core import *
 
 
@@ -21,6 +20,10 @@ class ViewAwareApplication(Application):
 
 
 class NotThatTypeOfCommandError(Exception):
+    pass
+
+
+class ViewIsReadOnlyException(Exception):
     pass
 
 
@@ -43,14 +46,21 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
         ":type ownerApplication: ViewAwareApplication"
 
     @ApplyPatchCommand.responder
-    def remote_applyPatch(self, patch):
+    def remote_applyPatch(self, patch, timestamp):
+        if self.view.is_read_only():
+            raise ViewIsReadOnlyException("View(id={0}) is read only. Cannot be modified".format(self.view.id()))
+
+        delta_ = timestamp - (time.time() + self.global_delta)
+        if delta_ > 0:
+            log.msg('ViewAwareAlgorithm: delta_={0}'.format(delta_), logLevel=logging.DEBUG)
+            self.ownerApplication.global_delta = delta_ * 1.001
 
         edit = self.view.begin_edit()
         try:
             log.msg('{0}: <before.view>{1}</before.view>'.format(self.name,
                                                                  self.view.substr(sublime.Region(0, self.view.size()))),
                     logLevel=logging.DEBUG)
-            respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch)
+            respond = super(ViewAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
             for sublime_command in self.dmp.sublime_patch_commands:
                 self.process_sublime_command(edit, sublime_command)
             return respond
@@ -98,7 +108,7 @@ class ViewAwareAlgorithm(DiffMatchPatchAlgorithm):
             self.view.replace(edit, region, insertion_text)
 
         elif command_type == 'erase':
-            assert command.size() < 4
+            assert len(command) < 4
             region = sublime.Region(sublime_start, sublime_stop)
             print ('erase({0},{1})'.format(region.a, region.b), '--->', self.view.substr(region))
             self.view.erase(edit, region)
