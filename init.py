@@ -3,9 +3,7 @@
 Модуль начальной инициализации sublime плагина. Включает в себя в основном наследников sublime_plugin.TextCommand.
 Логически является специфичной sublime оберткой над main модулем.
 """
-import time
-from core.core import PatchIsNotApplicableException
-from libs.dmp import diff_match_patch
+import main
 
 __author__ = 'snowy'
 
@@ -23,6 +21,19 @@ registry = {}
 
 RegistryEntry = namedtuple('RegistryEntry', ['application', 'connection_string'])
 running = False
+
+
+def log_any_failure_and_errmsg_eb(failure):
+    """
+    В случае, если не получается apply patch, то выводим сообщение об ошибке, а не умираем тихо
+    :param failure: twisted.python.Failure
+    """
+    failure.trap(Exception)
+    sublime.error_message(failure.getErrorMessage() if failure else 'No failure message is found')
+    assert Collaboration
+    sublime.run_command('collaboration', {'start_or_stop': 'stop'})
+    assert TerminateCollaborationCommand
+    sublime.run_command('terminate_collaboration')
 
 
 class ViewIsNotInitializedError(Exception):
@@ -56,7 +67,6 @@ class InitArgumentIsNotInitializedError(Exception):
     pass
 
 
-# noinspection PyClassHasNoInit
 class RunClientCommand(sublime_plugin.TextCommand):
     # noinspection PyUnusedLocal
     def run(self, edit, connection_str=None, init=None):
@@ -81,7 +91,6 @@ class NumberOfWindowsIsNotSupportedError(Exception):
     pass
 
 
-# noinspection PyClassHasNoInit
 class ConnectTwoWindows(sublime_plugin.TextCommand):
     """
     Соединить два окна. Иницилизирует два пира, каждый из которых владеет одним окном ST.
@@ -117,6 +126,8 @@ class ConnectTwoViewsCommand(sublime_plugin.TextCommand):
         if len(sublime.windows()) != 1:
             raise NumberOfWindowsIsNotSupportedError('Create single window with exactly two views and try again')
 
+        sublime.run_command('terminate_collaboration')
+
         views = sublime.active_window().views()
         for view in views:
             edit = view.begin_edit()
@@ -137,6 +148,65 @@ class ConnectTwoViewsCommand(sublime_plugin.TextCommand):
         _connect(view2, view1, True)
 
 
+class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.TextCommand):
+    """
+    Соединить два view, если они единственны. см. ConnectTwoWindows используя координирующий сервер
+    """
+
+    @staticmethod
+    def pre_conditions_check():
+        if len(sublime.windows()) != 1:
+            raise NumberOfWindowsIsNotSupportedError('Create single window with exactly two views and try again')
+
+    @staticmethod
+    def erase_view(view):
+        edit = view.begin_edit()
+        try:
+            view.erase(edit, sublime.Region(0, view.size()))
+        finally:
+            view.end_edit(edit)
+
+    def run(self, edit):
+        self.pre_conditions_check()
+
+        sublime.run_command('terminate_collaboration')
+
+        views = sublime.active_window().views()
+        for view in views:
+            self.erase_view(view)
+            view.run_command('run_server')
+
+        coordinator_created_cb = lambda ignore: self.connect_to_each_other(views[0], views[1])
+
+        def _eb(failure):
+            sublime.error_message(failure.getErrorMessage())
+            log.err(failure)
+
+        self.run_coordinator_server().addCallback(coordinator_created_cb).addErrback(_eb)
+
+
+    @staticmethod
+    def connect_to_each_other(view1, view2):
+        def _connect_to_coordinator(_view, isInited):
+            entry = registry['coordinator']
+            _view.run_command('run_client', {'connection_str': entry.connection_string, 'init': isInited})
+
+        _connect_to_coordinator(view1, False)
+        _connect_to_coordinator(view2, True)
+
+    @staticmethod
+    def run_coordinator_server():
+        from core.core import CoordinatorApplication
+
+        app = CoordinatorApplication(reactor)
+        log.msg('{0} is created'.format(app.name))
+
+        def _cb(client_connection_string):
+            registry['coordinator'] = RegistryEntry(app, client_connection_string)
+
+        return app.setUpServerFromStr('tcp:0').addCallback(_cb)
+
+
 class StartOrStopFlagMustBeSetException(Exception):
     pass
 
@@ -153,7 +223,7 @@ class Collaboration(sublime_plugin.ApplicationCommand):
     def __init__(self):
         from twisted.internet import task
 
-        self.run_every_second_task = task.LoopingCall(self.run_every_second)
+        self.run_every_second_task = task.LoopingCall(main.run_every_second)
 
     def run(self, start_or_stop=None):
         if start_or_stop is None:
@@ -169,57 +239,10 @@ class Collaboration(sublime_plugin.ApplicationCommand):
         else:
             raise StartOrStopArgumentIllegalValues('Available values are "start" or "stop".')
 
-    def supervisor_for_2column_layout(self, result):  # todo: доделать debug режим
-        """
-        Метод, проверяющий, что в обоих окнах один и тот же текст, а если нет - поднимает исключение
-        Сейчас не используется.
-        :param result:
-        :return: :raise ViewsDivergeException:
-        """
-        if result is None or 'no_work_is_done' in result:
-            return result
 
-        global running
-        if running:
-            views = sublime.active_window().views()
-            assert len(views) == 2
-            dmp = diff_match_patch()
-            texts = [view.substr(sublime.Region(0, view.size())) for view in views]
-            patches = dmp.patch_make(texts[0], texts[1])
-
-            if patches:
-                diff_text = dmp.patch_toText(patches)
-                appNames = [registry[view.id()].application.name for view in views]
-                for i in range(len(views)):
-                    log.err('Error: {0} text is: {1}'.format(appNames[i], texts[i]))
-                raise ViewsDivergeException('Views diverge. The diff between texts is:\n{0}'.format(diff_text))
-        return result
-
-    def run_every_second(self):
-        """Функция, которая запускает синхронизацию между view"""
-        for view_id in registry:
-            app = registry[view_id].application
-            allTextRegion = sublime.Region(0, app.view.size())
-            allText = app.view.substr(allTextRegion)
-            app.algorithm.local_onTextChanged(allText) \
-                .addErrback(log_any_failure_and_errmsg_eb) \
-                # .addCallback(self.supervisor_for_2column_layout) \
-
-
-def log_any_failure_and_errmsg_eb(failure):
-    """
-    В случае, если не получается apply patch, то выводим сообщение об ошибке, а не умираем тихо
-    :param failure: twisted.python.Failure
-    """
-    failure.trap(Exception)
-    sublime.error_message(failure.getErrorMessage() if failure else 'No failure message is found')
-    sublime.run_command('collaboration', {'start_or_stop': 'stop'})
-    sublime.run_command('terminate_collaboration')
-
-
-# noinspection PyMethodMayBeStatic
 class TerminateCollaborationCommand(sublime_plugin.ApplicationCommand):
-    def run(self):
+    @staticmethod
+    def run():
         global registry
         del registry
         registry = {}

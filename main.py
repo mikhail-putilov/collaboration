@@ -3,10 +3,11 @@
 Модуль отвечающий за основную функциональность приложения. Является sublime специфичной.
 Является логической оберткой над core модулем.
 """
+import init
+# noinspection PyUnresolvedReferences
+import sublime
 
 __author__ = 'snowy'
-
-import sublime
 
 from core.core import *
 
@@ -117,3 +118,14 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
 
         else:
             raise NotThatTypeOfCommandError()
+
+
+def run_every_second():
+    """Функция, которая запускает синхронизацию между view"""
+    for view_id in init.registry:
+        if view_id == 'coordinator':
+            continue
+        app = init.registry[view_id].application
+        allTextRegion = sublime.Region(0, app.view.size())
+        allText = app.view.substr(allTextRegion)
+        app.algorithm.local_onTextChanged(allText).addErrback(init.log_any_failure_and_errmsg_eb)

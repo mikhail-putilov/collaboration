@@ -7,7 +7,7 @@ import logging
 import time
 
 import ntplib
-from twisted.protocols.amp import CommandLocator
+from twisted.protocols.amp import CommandLocator, AMP
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory
@@ -16,7 +16,7 @@ from twisted.python import log
 
 from command import *
 from exceptions import *
-from other import save
+from other import *
 from libs.dmp import diff_match_patch
 import history
 
@@ -24,18 +24,38 @@ import history
 __author__ = 'snowy'
 
 
+class CannotConnectToNTPServerException(Exception):
+    pass
+
+
 class DiffMatchPatchAlgorithm(CommandLocator):
+    def defer_set_global_delta(self, num_tries):
+        if num_tries > 3:
+            raise CannotConnectToNTPServerException(
+                'Fail to connect to europe.pool.ntp.org host after {0} retries'.format(num_tries))
+        _num_tries = num_tries + 1
+        d = defer.Deferred()  # ntp time request
+
+        def got_ntp_stats_cb(response):
+            self.global_delta = response.tx_time - time.time()
+
+        d.addCallback(got_ntp_stats_cb)
+        d.addErrback(self.defer_set_global_delta, _num_tries)
+
+        d.callback(self.ntp_client.request('europe.pool.ntp.org', version=3))
+        return d
+
     def __init__(self, history_line, initialText='', clientProtocol=None, name=''):
         self.name = name
         self.clientProtocol = clientProtocol
         self.currentText = initialText
         self.dmp = diff_match_patch()
         self.history_line = history_line
-        c = ntplib.NTPClient()
-        response = c.request('europe.pool.ntp.org', version=3)
-        self.global_delta = response.tx_time - time.time()
+        self.ntp_client = ntplib.NTPClient()
+        self.global_delta_d = self.defer_set_global_delta(1)
 
-    def _get_current_timestamp(self):
+    # noinspection PyAttributeOutsideInit
+    def get_current_timestamp(self):
         if self.global_delta is None:
             self.global_delta = self._get_global_delta()
         return time.time() + self.global_delta
@@ -88,11 +108,11 @@ class DiffMatchPatchAlgorithm(CommandLocator):
 
         serialized = self.dmp.patch_toText(patches)
 
-        patch_is_not_empty_and_we_have_clients = serialized and self.clientProtocol is not None
-        if patch_is_not_empty_and_we_have_clients:
+        if serialized:
             log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
-            return self.clientProtocol.callRemote(ApplyPatchCommand, patch=serialized,
-                                                  timestamp=time.time() + self.global_delta)
+            return self.clientProtocol.callRemote(TryApplyPatchCommand,
+                                                  patch=serialized,
+                                                  timestamp=self.get_current_timestamp())
 
         return ApplyPatchCommand.no_work_is_done_response
 
@@ -235,3 +255,79 @@ class Application(object):
         if self.clientProtocol:
             self.clientProtocol.transport.loseConnection()
         return d
+
+
+class TryApplyPatchCommand(Command):
+    arguments = [('patch', Patch()), ('timestamp', Float())]
+    response = [('succeed', Boolean())]
+    errors = {
+        PatchIsNotApplicableException: 'Патч не может быть применен. '
+                                       'Сделайте пул, зарезолвите конфликты, потом сделайте пуш',
+        UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review unicode
+    }
+    requiresAnswer = True
+
+
+class CoordinatorLocator(CommandLocator):
+    def __init__(self, main_locator):
+        """
+        Координатор. Лишает права конфликтовать
+        :param main_locator: DiffMatchPatchAlgorithm
+        """
+        self.clients = []
+        assert isinstance(main_locator,
+                          DiffMatchPatchAlgorithm), 'current version of locator must be DiffMatchPatchAlgorithm'
+        self.main_locator = main_locator
+        # self.main_locator должен строго относиться к нарушению контекста патча.
+        # Поэтому необходимо включить set_perfect_matching
+        self.set_perfect_matching()
+
+    @TryApplyPatchCommand.responder
+    def try_apply_patch(self, patch, timestamp):
+        # если applyPatch не пройдет, то будет вызвано исключение и
+        # вызывающий пир будет уведомлен о PatchIsNotApplicableException
+        self.main_locator.remote_applyPatch(patch, timestamp)
+        # все остальные пиры должны принять изменения, даже если это противоречит их религии
+        # force push
+        for client in self.clients:
+            client.callRemote(ApplyPatchCommand, patch=patch, timestamp=self.main_locator.get_current_timestamp())
+        return {'succeed': True}
+
+    def add_client(self, clientProtocol):
+        assert hasattr(clientProtocol, 'callRemote'), 'clientProtocol должен иметь метод callRemote ' \
+                                                      'для того, чтобы можно было отправлять AMP пакеты'
+        self.clients.append(clientProtocol)
+
+    def clean_clients(self):
+        del self.clients
+        self.clients = []
+
+    def remove_client(self, clientProtocol):
+        assert hasattr(clientProtocol, 'callRemote'), 'clientProtocol должен иметь метод callRemote ' \
+                                                      'для того, чтобы можно было отправлять AMP пакеты'
+        self.clients.remove(clientProtocol)
+
+    def set_perfect_matching(self):
+        self.main_locator.dmp.Match_Threshold = 0.0
+
+
+class CoordinatorApplication(Application):
+    def __init__(self, reactor, name='Coordinator'):
+        super(CoordinatorApplication, self).__init__(reactor, name=name)
+        self.locator = CoordinatorLocator(self.locator)
+        self.serverPorts = []
+
+    def _initServer(self, locator, serverConnString):
+        """
+        Инициализация сервера с многими подключениями
+        :type serverConnString: str строка подключения для serverFromString
+        :return : defer.Deferred
+        """
+        self.history_line.clean()
+        self.serverEndpoint = serverFromString(self.reactor, serverConnString)
+        self.serverFactory = Factory.forProtocol(lambda: AMP(locator=locator))
+
+        def connected_cb(port):
+            self.serverPorts.append(port)
+            return port
+        return self.serverEndpoint.listen(self.serverFactory).addCallback(connected_cb)
