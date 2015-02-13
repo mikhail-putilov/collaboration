@@ -177,13 +177,7 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.TextCommand):
             view.run_command('run_server')
 
         coordinator_created_cb = lambda ignore: self.connect_to_each_other(views[0], views[1])
-
-        def _eb(failure):
-            sublime.error_message(failure.getErrorMessage())
-            log.err(failure)
-
-        self.run_coordinator_server().addCallback(coordinator_created_cb).addErrback(_eb)
-
+        self.run_coordinator_server().addCallback(coordinator_created_cb)
 
     @staticmethod
     def connect_to_each_other(view1, view2):

@@ -3,6 +3,7 @@
 Основная функциональность. Инкапсулировано от sublime.
 Вся бизнес-работа выполняется на основе diff_match_patch объекта.
 """
+__author__ = 'snowy'
 import logging
 import time
 
@@ -10,26 +11,25 @@ import ntplib
 from twisted.protocols.amp import CommandLocator, AMP
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
-from twisted.internet.protocol import Factory, ClientFactory
-from twisted.protocols.amp import AMP
+from twisted.internet.protocol import Factory, ClientFactory, ServerFactory
 from twisted.python import log
 
+import history
 from command import *
 from exceptions import *
 from other import *
 from libs.dmp import diff_match_patch
-import history
-
-
-__author__ = 'snowy'
 
 
 class CannotConnectToNTPServerException(Exception):
     pass
 
 
+# noinspection PyUnreachableCode,PyAttributeOutsideInit
 class DiffMatchPatchAlgorithm(CommandLocator):
     def defer_set_global_delta(self, num_tries):
+        self.global_delta = 0
+        return defer.succeed(0)
         if num_tries > 3:
             raise CannotConnectToNTPServerException(
                 'Fail to connect to europe.pool.ntp.org host after {0} retries'.format(num_tries))
@@ -205,7 +205,7 @@ class Application(object):
         """
         clientEndpoint = clientFromString(self.reactor, clientConnString)
         saveProtocol = lambda p: save(self, 'clientProtocol', p)  # given protocol
-        self.clientFactory = ClientFactory.forProtocol(AMP)
+        self.clientFactory = ClientFactory.forProtocol(lambda: AMP(locator=self.locator))
         return clientEndpoint.connect(self.clientFactory).addCallback(saveProtocol).addCallback(self.setClientProtocol)
 
     def setClientProtocol(self, proto):
@@ -265,7 +265,6 @@ class TryApplyPatchCommand(Command):
                                        'Сделайте пул, зарезолвите конфликты, потом сделайте пуш',
         UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review unicode
     }
-    requiresAnswer = True
 
 
 class CoordinatorLocator(CommandLocator):
@@ -274,7 +273,7 @@ class CoordinatorLocator(CommandLocator):
         Координатор. Лишает права конфликтовать
         :param main_locator: DiffMatchPatchAlgorithm
         """
-        self.clients = []
+        self.peers = []
         assert isinstance(main_locator,
                           DiffMatchPatchAlgorithm), 'current version of locator must be DiffMatchPatchAlgorithm'
         self.main_locator = main_locator
@@ -289,23 +288,23 @@ class CoordinatorLocator(CommandLocator):
         self.main_locator.remote_applyPatch(patch, timestamp)
         # все остальные пиры должны принять изменения, даже если это противоречит их религии
         # force push
-        for client in self.clients:
-            client.callRemote(ApplyPatchCommand, patch=patch, timestamp=self.main_locator.get_current_timestamp())
+        for peer in self.peers:
+            peer.callRemote(ApplyPatchCommand, patch=patch, timestamp=self.main_locator.get_current_timestamp())
         return {'succeed': True}
 
-    def add_client(self, clientProtocol):
-        assert hasattr(clientProtocol, 'callRemote'), 'clientProtocol должен иметь метод callRemote ' \
-                                                      'для того, чтобы можно было отправлять AMP пакеты'
-        self.clients.append(clientProtocol)
+    def add_incoming_connection(self, server_proto):
+        assert hasattr(server_proto, 'callRemote'), 'clientProtocol должен иметь метод callRemote ' \
+                                                    'для того, чтобы можно было отправлять AMP пакеты'
+        self.peers.append(server_proto)
 
-    def clean_clients(self):
-        del self.clients
-        self.clients = []
+    def clean_incoming_connections(self):
+        del self.peers
+        self.peers = []
 
-    def remove_client(self, clientProtocol):
-        assert hasattr(clientProtocol, 'callRemote'), 'clientProtocol должен иметь метод callRemote ' \
-                                                      'для того, чтобы можно было отправлять AMP пакеты'
-        self.clients.remove(clientProtocol)
+    def remove_incoming_connection(self, server_proto):
+        assert hasattr(server_proto, 'callRemote'), 'server_proto должен иметь метод callRemote ' \
+                                                    'для того, чтобы можно было отправлять AMP пакеты'
+        self.peers.remove(server_proto)
 
     def set_perfect_matching(self):
         self.main_locator.dmp.Match_Threshold = 0.0
@@ -324,10 +323,30 @@ class CoordinatorApplication(Application):
         :return : defer.Deferred
         """
         self.history_line.clean()
+        self.locator.clean_incoming_connections()
         self.serverEndpoint = serverFromString(self.reactor, serverConnString)
-        self.serverFactory = Factory.forProtocol(lambda: AMP(locator=locator))
+        self.serverFactory = MultipleConnectionServerFactory(locator)
 
         def connected_cb(port):
             self.serverPorts.append(port)
             return port
+
         return self.serverEndpoint.listen(self.serverFactory).addCallback(connected_cb)
+
+    def tearDown(self):
+        assert self.clientProtocol is None, 'Coordinator is not a client for any peer'
+        d = defer.succeed(None)
+        if self.serverPorts:
+            d = defer.DeferredList([defer.maybeDeferred(serverPort.stopListening) for serverPort in self.serverPorts])
+        return d
+
+
+class MultipleConnectionServerFactory(ServerFactory):
+    def __init__(self, locator):
+        self.locator = locator
+        self.protocol = lambda: AMP(locator=locator)
+
+    def buildProtocol(self, addr):
+        proto = Factory.buildProtocol(self, addr)
+        self.locator.add_incoming_connection(proto)
+        return proto

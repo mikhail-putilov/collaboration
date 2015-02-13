@@ -18,6 +18,7 @@
           <option value="twisted.internet.reactor.callLater" />
           <option value="sublime_plugin" />
           <option value="core.core.reactor" />
+          <option value="spdb" />
         </list>
       </option>
     </inspection_tool>
