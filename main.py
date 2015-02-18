@@ -55,23 +55,23 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
 
         delta_ = timestamp - (time.time() + self.global_delta)
         if delta_ > 0:
-            log.msg('SublimeAwareAlgorithm: delta_={0}'.format(delta_), logLevel=logging.DEBUG)
+            # log.msg('SublimeAwareAlgorithm: delta_={0}'.format(delta_), logLevel=logging.DEBUG)
             self.ownerApplication.global_delta = delta_ * 1.001
 
         edit = self.view.begin_edit()
         try:
-            log.msg('{0}: <before.view>{1}</before.view>'.format(self.name,
-                                                                 self.view.substr(sublime.Region(0, self.view.size()))),
-                    logLevel=logging.DEBUG)
+            # log.msg('{0}: <before.view>{1}</before.view>'.format(self.name,
+            #                                                      self.view.substr(sublime.Region(0, self.view.size()))),
+            #         logLevel=logging.DEBUG)
             respond = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
             for sublime_command in self.dmp.sublime_patch_commands:
                 self.process_sublime_command(edit, sublime_command)
             return respond
         finally:
             self.view.end_edit(edit)
-            log.msg('{0}: <after.view>{1}</after.view>'.format(self.name,
-                                                               self.view.substr(sublime.Region(0, self.view.size()))),
-                    logLevel=logging.DEBUG)
+            # log.msg('{0}: <after.view>{1}</after.view>'.format(self.name,
+            #                                                    self.view.substr(sublime.Region(0, self.view.size()))),
+            #         logLevel=logging.DEBUG)
 
     def process_sublime_command(self, edit, command):
         """

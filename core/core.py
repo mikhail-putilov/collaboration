@@ -26,7 +26,13 @@ class CannotConnectToNTPServerException(Exception):
 
 
 # noinspection PyUnreachableCode,PyAttributeOutsideInit
+class FailedToApplyPatchSilentlyException(Exception):
+    pass
+
+
 class DiffMatchPatchAlgorithm(CommandLocator):
+    # todo: remove
+    # noinspection PyUnreachableCode,PyAttributeOutsideInit,PyUnusedLocal
     def defer_set_global_delta(self, num_tries):
         self.global_delta = 0
         return defer.succeed(0)
@@ -46,11 +52,15 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         return d
 
     def __init__(self, history_line, initialText='', clientProtocol=None, name=''):
+        """
+
+        :type history_line: history.HistoryLine
+        """
         self.name = name
         self.clientProtocol = clientProtocol
         self.currentText = initialText
         self.dmp = diff_match_patch()
-        self.history_line = history_line
+        self.history = history_line
         self.ntp_client = ntplib.NTPClient()
         self.global_delta_d = self.defer_set_global_delta(1)
 
@@ -99,7 +109,8 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         patches = self.dmp.patch_make(self.currentText, nextText)
         if not patches:
             return ApplyPatchCommand.no_work_is_done_response
-
+        timestamp = self.get_current_timestamp()
+        self.history.commit(patch=patches, timestamp=timestamp, is_owner=True)
         self.currentText = nextText
 
         if self.clientProtocol is None:
@@ -112,21 +123,22 @@ class DiffMatchPatchAlgorithm(CommandLocator):
             log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
             return self.clientProtocol.callRemote(TryApplyPatchCommand,
                                                   patch=serialized,
-                                                  timestamp=self.get_current_timestamp())
+                                                  timestamp=timestamp)
 
         return ApplyPatchCommand.no_work_is_done_response
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch, timestamp):
-        _patch = self.dmp.patch_fromText(patch)
-        patchedText, result = self.dmp.patch_apply(_patch, self.currentText)
+        patch_objects = self.dmp.patch_fromText(patch)
+        patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
         if False in result:
-            log.msg('{0}: remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
-            raise PatchIsNotApplicableException()
+            self.log_failed_apply_patch()
+            self.start_recovery(patch_objects, timestamp)
 
         log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
                 logLevel=logging.DEBUG)
 
+        self.history.commit(patch=patch_objects, timestamp=timestamp, is_owner=False)
         self.currentText = patchedText
 
         log.msg('{0}: <after.model>{1}</after.model>'.format(self.name, self.currentText),
@@ -138,6 +150,57 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         if self.local_text is None:
             raise NoTextAvailableException()
         return {'text': self.local_text}
+
+    def start_recovery(self, patch_objects, timestamp):
+        """
+        Процедура RECOVERY.
+        :param patch_objects: list [libs.dmp.diff_match_patch.patch_obj] Список патчей
+        :param timestamp: временная метка
+        """
+        assert self.name != 'Coordinator'
+        log.msg('{0}: starting recovery...'.format(self.name), logLevel=logging.DEBUG)
+
+        # todo: add here iteration; rollback, try patch, rollback, try patch
+
+        # noinspection PyUnusedLocal
+        rolled_back_patches = self.rollback_uncommon_patches(patch_objects, timestamp)
+        try:
+            self.silently_apply_patch(patch_objects, timestamp, False)
+        except FailedToApplyPatchSilentlyException as e:
+            e.message = 'This must never happen.'
+            raise e
+            # ha-ha todo: add new steps
+
+    # noinspection PyUnusedLocal
+    def rollback_uncommon_patches(self, patch_objects, timestamp):
+        """
+        Откатить конфликтные патчи из истории.
+        :param patch_objects: list [libs.dmp.diff_match_patch.patch_obj] Список патчей
+        :return: list [HistoryEntry]
+        """
+        rolled_back_patches = []
+        possibly_conflicted_entries = self.history.get_all_since(timestamp)
+        log.msg('ROLLED BACK NEXT HISTORY ENTRIES:{0}'.format(possibly_conflicted_entries),
+                logLevel=logging.DEBUG)
+        rolled_back_patches.extend(possibly_conflicted_entries)
+        return rolled_back_patches
+
+    def log_failed_apply_patch(self):
+        log.msg('{0}: remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
+
+    def silently_apply_patch(self, patches, timestamp, is_owner):
+        patchedText, result = self.dmp.patch_apply(patches, self.currentText)
+        if False in result:
+            self.log_failed_apply_patch()
+            raise FailedToApplyPatchSilentlyException()
+
+        log.msg('{0}: <silent.before.model>{1}</silent.before.model>'.format(self.name, self.currentText),
+                logLevel=logging.DEBUG)
+
+        self.history.commit(patch=patches, timestamp=timestamp, is_owner=is_owner)
+        self.currentText = patchedText
+        log.msg('{0}: <silent.after.model>{1}</silent.after.model>'.format(self.name, self.currentText),
+                logLevel=logging.DEBUG)
 
 
 class NetworkApplicationConfig(object):
@@ -167,7 +230,7 @@ class Application(object):
         self.clientFactory = None
         self.serverPort = None
         self.clientProtocol = None
-        self.history_line = history.HistoryLine(self)  # todo: maybe remove history
+        self.history_line = history.HistoryLine(self)
         self.locator = DiffMatchPatchAlgorithm(self.history_line, clientProtocol=self.clientProtocol, name=name)
 
     @property
@@ -283,13 +346,14 @@ class CoordinatorLocatorDecorator(CommandLocator):
 
     @TryApplyPatchCommand.responder
     def try_apply_patch(self, patch, timestamp):
+        log.msg('{0}: trying to apply patch...'.format(self.decorated_locator.name), logLevel=logging.DEBUG)
         # если applyPatch не пройдет, то будет вызвано исключение и
         # вызывающий пир будет уведомлен о PatchIsNotApplicableException
         self.decorated_locator.remote_applyPatch(patch, timestamp)
         # все остальные пиры должны принять изменения, даже если это противоречит их религии
         # force push
         for peer in self.peers:
-            peer.callRemote(ApplyPatchCommand, patch=patch, timestamp=self.decorated_locator.get_current_timestamp())
+            peer.callRemote(ApplyPatchCommand, patch=patch, timestamp=timestamp)
         return {'succeed': True}
 
     def add_incoming_connection(self, server_proto):
@@ -310,11 +374,18 @@ class CoordinatorLocatorDecorator(CommandLocator):
         self.decorated_locator.dmp.Match_Threshold = 0.0
 
 
+class CoordinatorDiffMatchPatchAlgorithm(DiffMatchPatchAlgorithm):
+    def start_recovery(self, patch_objects, timestamp):
+        raise PatchIsNotApplicableException('Sorry. Thats conflict.')
+
+
 class CoordinatorApplication(Application):
     def __init__(self, reactor, name='Coordinator'):
         super(CoordinatorApplication, self).__init__(reactor, name=name)
         self.server_ports = []
         self.decorated_locators = []
+        self.locator = CoordinatorDiffMatchPatchAlgorithm(self.history_line, clientProtocol=self.clientProtocol,
+                                                          name=name)
 
     def _initServer(self, locator, serverConnString):
         """
