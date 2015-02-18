@@ -267,16 +267,16 @@ class TryApplyPatchCommand(Command):
     }
 
 
-class CoordinatorLocator(CommandLocator):
-    def __init__(self, main_locator):
+class CoordinatorLocatorDecorator(CommandLocator):
+    def __init__(self, to_be_decorated_locator):
         """
         Координатор. Лишает права конфликтовать
-        :param main_locator: DiffMatchPatchAlgorithm
+        :param to_be_decorated_locator: DiffMatchPatchAlgorithm
         """
-        self.peers = []
-        assert isinstance(main_locator,
+        assert isinstance(to_be_decorated_locator,
                           DiffMatchPatchAlgorithm), 'current version of locator must be DiffMatchPatchAlgorithm'
-        self.main_locator = main_locator
+        self.peers = []
+        self.decorated_locator = to_be_decorated_locator
         # self.main_locator должен строго относиться к нарушению контекста патча.
         # Поэтому необходимо включить set_perfect_matching
         self.set_perfect_matching()
@@ -285,11 +285,11 @@ class CoordinatorLocator(CommandLocator):
     def try_apply_patch(self, patch, timestamp):
         # если applyPatch не пройдет, то будет вызвано исключение и
         # вызывающий пир будет уведомлен о PatchIsNotApplicableException
-        self.main_locator.remote_applyPatch(patch, timestamp)
+        self.decorated_locator.remote_applyPatch(patch, timestamp)
         # все остальные пиры должны принять изменения, даже если это противоречит их религии
         # force push
         for peer in self.peers:
-            peer.callRemote(ApplyPatchCommand, patch=patch, timestamp=self.main_locator.get_current_timestamp())
+            peer.callRemote(ApplyPatchCommand, patch=patch, timestamp=self.decorated_locator.get_current_timestamp())
         return {'succeed': True}
 
     def add_incoming_connection(self, server_proto):
@@ -307,14 +307,14 @@ class CoordinatorLocator(CommandLocator):
         self.peers.remove(server_proto)
 
     def set_perfect_matching(self):
-        self.main_locator.dmp.Match_Threshold = 0.0
+        self.decorated_locator.dmp.Match_Threshold = 0.0
 
 
 class CoordinatorApplication(Application):
     def __init__(self, reactor, name='Coordinator'):
         super(CoordinatorApplication, self).__init__(reactor, name=name)
-        self.locator = CoordinatorLocator(self.locator)
-        self.serverPorts = []
+        self.server_ports = []
+        self.decorated_locators = []
 
     def _initServer(self, locator, serverConnString):
         """
@@ -323,12 +323,13 @@ class CoordinatorApplication(Application):
         :return : defer.Deferred
         """
         self.history_line.clean()
-        self.locator.clean_incoming_connections()
+        for decorated_locator in self.decorated_locators:
+            decorated_locator.clean_incoming_connections()
         self.serverEndpoint = serverFromString(self.reactor, serverConnString)
         self.serverFactory = MultipleConnectionServerFactory(locator)
 
         def connected_cb(port):
-            self.serverPorts.append(port)
+            self.server_ports.append(port)
             return port
 
         return self.serverEndpoint.listen(self.serverFactory).addCallback(connected_cb)
@@ -336,17 +337,35 @@ class CoordinatorApplication(Application):
     def tearDown(self):
         assert self.clientProtocol is None, 'Coordinator is not a client for any peer'
         d = defer.succeed(None)
-        if self.serverPorts:
-            d = defer.DeferredList([defer.maybeDeferred(serverPort.stopListening) for serverPort in self.serverPorts])
+        if self.server_ports:
+            d = defer.DeferredList([defer.maybeDeferred(serverPort.stopListening) for serverPort in self.server_ports])
         return d
 
 
 class MultipleConnectionServerFactory(ServerFactory):
-    def __init__(self, locator):
-        self.locator = locator
-        self.protocol = lambda: AMP(locator=locator)
+    def __init__(self, coordinator_locator):
+        """
+        Фабрика по созданию протоколов на каджый входящий запрос. У всех локаторов созданных
+        протоколов один и тот же предок - coordinator_locator
+        :param coordinator_locator: DiffMatchPatchAlgorithm основной локатор, который выполняет всю нагрузку по патчингу
+        """
+        self.coordinator_locator = coordinator_locator
+        # протокол AMP с локатором CoordinatorLocatorDecorator
+        self.protocol = lambda: AMP(locator=CoordinatorLocatorDecorator(coordinator_locator))
+        self.already_proto = []
+        ":type already_proto: list [AMP]"
 
     def buildProtocol(self, addr):
         proto = Factory.buildProtocol(self, addr)
-        self.locator.add_incoming_connection(proto)
+        for prev_proto in self.already_proto:
+            assert isinstance(prev_proto.locator, CoordinatorLocatorDecorator), 'Каждый локатор должен быть ' \
+                                                                                'декорирован для задания своего ' \
+                                                                                'списка incoming_connections'
+            assert prev_proto.locator.decorated_locator is self.coordinator_locator, 'координирующий ' \
+                                                                                     'локатор должен быть один'
+            prev_proto.locator.add_incoming_connection(proto)
+            proto.locator.add_incoming_connection(prev_proto)
+
+        # add for the next protos
+        self.already_proto.append(proto)
         return proto
