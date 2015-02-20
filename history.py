@@ -2,8 +2,11 @@
 from collections import namedtuple
 import logging
 import time
-from libs.dmp.diff_match_patch import diff_match_patch
+
 from twisted.python import log
+
+from libs.dmp.diff_match_patch import diff_match_patch
+
 
 __author__ = 'snowy'
 
@@ -71,6 +74,8 @@ class TimeMachine(object):
         self.history = history_line
         self.strict_dmp = diff_match_patch()
         self.strict_dmp.Match_Threshold = 0.0
+        self.loose_dmp = diff_match_patch()
+        self.loose_dmp.Match_Threshold = 1.0
 
     @staticmethod
     def get_current_timestamp():
@@ -84,8 +89,13 @@ class TimeMachine(object):
 
     def _rollback(self, to_be_rolled_back_patch):
         patchedText, result = self.strict_dmp.patch_apply(to_be_rolled_back_patch, self.owner.currentText)
+        serialized = '\n'.join([str(patch) for patch in to_be_rolled_back_patch])
         if False in result:
-            raise RollbackFailedException('Check consistency of the rollback_history. Cannot rollback history')
+            raise RollbackFailedException(
+                'Check consistency of the rollback_history. '
+                'Cannot rollback history. <patch>{0}</patch>'.format(serialized))
+        log.msg('{0}: rolled back: <patch>{1}</patch>'.format(self.owner.name, serialized),
+                logLevel=logging.DEBUG)
         self.owner.currentText = patchedText
 
     # noinspection PyUnusedLocal
@@ -106,6 +116,7 @@ class TimeMachine(object):
             # try patch
             is_perfect_match = self._try_patch(patch_objects)
             if is_perfect_match:
+                self._rollforward(pop_stack)
                 log.msg('{0}: recovery has stopped. Everything seems okay now.'.format(self.owner.name))
                 break
 
@@ -122,3 +133,14 @@ class TimeMachine(object):
             # everything all right rolled back and patch is perfect match this version
             self.owner.currentText = patchedText
             return True
+
+    def _rollforward(self, pop_stack):
+        for _, forward in reversed(pop_stack):
+            patchedText, result = self.loose_dmp.patch_apply(forward.patch, self.owner.currentText)
+            serialized = '\n'.join([str(patch) for patch in forward.patch])
+            if False in result:
+                template = '{0}: could not roll forward even with loose matching: <patch>{1}</patch>'
+                log.msg(template.format(self.owner.name, serialized), logLevel=logging.DEBUG)
+            self.owner.currentText = patchedText
+            forward_template = '{0}: rolled forward: <patch>{1}</patch>'
+            log.msg(forward_template.format(self.owner.name, serialized), logLevel=logging.DEBUG)

@@ -68,9 +68,13 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         if not serialized:
             return ApplyPatchCommand.no_work_is_done_response
         log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
+
+        def _eb(failure):
+            failure.trap(PatchIsNotApplicableException)  # todo: add pull-push strategy
+            return {'succeed': True}
         return self.clientProtocol.callRemote(TryApplyPatchCommand,
                                               patch=serialized,
-                                              timestamp=timestamp)
+                                              timestamp=timestamp).addErrback(_eb)
 
     def _prepare_and_commit_on_remote_apply(self, patch_objects, patchedText, timestamp):
         forward = history.HistoryEntry(patch=patch_objects,
@@ -89,8 +93,13 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
         if False in result:
             # if failed then recovery
-            self.log_failed_apply_patch()
+            self.log_failed_apply_patch('\n'.join([str(patch) for patch in patch_objects]))
+            log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
+                    logLevel=logging.DEBUG)
             self.start_recovery(patch_objects, timestamp)
+            log.msg('{0}: <after.model>{1}</after.model>'.format(self.name, self.currentText),
+                    logLevel=logging.DEBUG)
+            return {'succeed': True}
 
         log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
                 logLevel=logging.DEBUG)
@@ -107,8 +116,8 @@ class DiffMatchPatchAlgorithm(CommandLocator):
             raise NoTextAvailableException()
         return {'text': self.local_text}
 
-    def log_failed_apply_patch(self):
-        log.msg('{0}: remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
+    def log_failed_apply_patch(self, patch):
+        log.msg('{0}: remote patch is not applied: <patch>{1}</patch>'.format(self.name, patch), logLevel=logging.DEBUG)
 
     def _prepare_and_commit_on_local_changes(self, patches, nextText, timestamp):
         forward = history.HistoryEntry(patch=patches,

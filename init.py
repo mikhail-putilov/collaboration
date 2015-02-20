@@ -92,7 +92,7 @@ class NumberOfWindowsIsNotSupportedError(Exception):
     pass
 
 
-class ConnectTwoWindows(sublime_plugin.TextCommand):
+class ConnectTwoWindows(sublime_plugin.TextCommand):  # todo: remove two windows connection
     """
     Соединить два окна. Иницилизирует два пира, каждый из которых владеет одним окном ST.
     Текст в обоих окнах должен синхронизироваться
