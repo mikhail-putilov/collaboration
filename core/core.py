@@ -5,9 +5,7 @@
 """
 __author__ = 'snowy'
 import logging
-import time
 
-import ntplib
 from twisted.protocols.amp import CommandLocator, AMP
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
@@ -25,39 +23,10 @@ class CannotConnectToNTPServerException(Exception):
     pass
 
 
-# noinspection PyUnreachableCode,PyAttributeOutsideInit
-class FailedToApplyPatchSilentlyException(Exception):
-    pass
-
-
-class RollbackFailedException(Exception):
-    pass
-
-
 class DiffMatchPatchAlgorithm(CommandLocator):
-    # todo: remove
-    # noinspection PyUnreachableCode,PyAttributeOutsideInit,PyUnusedLocal
-    def defer_set_global_delta(self, num_tries):
-        self.global_delta = 0
-        return defer.succeed(0)
-        if num_tries > 3:
-            raise CannotConnectToNTPServerException(
-                'Fail to connect to europe.pool.ntp.org host after {0} retries'.format(num_tries))
-        _num_tries = num_tries + 1
-        d = defer.Deferred()  # ntp time request
-
-        def got_ntp_stats_cb(response):
-            self.global_delta = response.tx_time - time.time()
-
-        d.addCallback(got_ntp_stats_cb)
-        d.addErrback(self.defer_set_global_delta, _num_tries)
-
-        d.callback(self.ntp_client.request('europe.pool.ntp.org', version=3))
-        return d
-
     def __init__(self, history_line, initialText='', clientProtocol=None, name=''):
         """
-
+        Основной локатор-алгоритм, действующий только с моделью текста
         :type history_line: history.HistoryLine
         """
         self.name = name
@@ -65,32 +34,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         self.currentText = initialText
         self.dmp = diff_match_patch()
         self.history = history_line
-        self.ntp_client = ntplib.NTPClient()
-        self.global_delta_d = self.defer_set_global_delta(1)
-
-    # noinspection PyAttributeOutsideInit
-    def get_current_timestamp(self):
-        if self.global_delta is None:
-            self.global_delta = self._get_global_delta()
-        return time.time() + self.global_delta
-
-    @staticmethod
-    def _get_global_delta():
-        c = ntplib.NTPClient()
-        response = c.request('europe.pool.ntp.org', version=3, timeout=10)
-        return response.tx_time - time.time()
-
-    def _alter_forward_lamport_time(self, delta_time):
-        """
-        Подкрутить время вперед на часах Лампорта
-        :param delta_time: float время в секундах (доли тоже считаются)
-        :raise GlobalDeltaIsNotInited:
-        """
-        assert delta_time > 0
-        if self.global_delta is None:
-            raise GlobalDeltaIsNotInitedException('Field "self.global_delta" must be inited before.'
-                                                  'Set it with _get_global_delta method')
-        self.global_delta += delta_time
+        self.time_machine = history.TimeMachine(history_line, self)
 
     @property
     def local_text(self):
@@ -110,45 +54,25 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         :rtype : defer.Deferred с результатом команды ApplyPatchCommand
         :param nextText: str текст, который является более новой версией текущего текста self.currentText
         """
-        patches = self.dmp.patch_make(self.currentText, nextText)
-        if not patches:
-            return ApplyPatchCommand.no_work_is_done_response
-        timestamp = self.get_current_timestamp()
-        forward = history.HistoryEntry(patch=patches,
-                                       timestamp=timestamp,
-                                       is_owner=True)
-        backward = history.HistoryEntry(patch=self.dmp.patch_make(nextText, self.currentText),
-                                        timestamp=timestamp,
-                                        is_owner=True)
-        self.history.commit_with_rollback(forward, backward)
-
-        self.currentText = nextText
-
         if self.clientProtocol is None:
             log.msg('Client protocol is None', logLevel=logging.DEBUG)
             return ApplyPatchCommand.no_work_is_done_response
 
+        patches = self.dmp.patch_make(self.currentText, nextText)
+        if not patches:
+            return ApplyPatchCommand.no_work_is_done_response
+        timestamp = self.time_machine.get_current_timestamp()
+        self._prepare_and_commit_on_local_changes(patches, nextText, timestamp)
+        self.currentText = nextText
         serialized = self.dmp.patch_toText(patches)
+        if not serialized:
+            return ApplyPatchCommand.no_work_is_done_response
+        log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
+        return self.clientProtocol.callRemote(TryApplyPatchCommand,
+                                              patch=serialized,
+                                              timestamp=timestamp)
 
-        if serialized:
-            log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
-            return self.clientProtocol.callRemote(TryApplyPatchCommand,
-                                                  patch=serialized,
-                                                  timestamp=timestamp)
-
-        return ApplyPatchCommand.no_work_is_done_response
-
-    @ApplyPatchCommand.responder
-    def remote_applyPatch(self, patch, timestamp):
-        patch_objects = self.dmp.patch_fromText(patch)
-        patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
-        if False in result:
-            self.log_failed_apply_patch()
-            self.start_recovery(patch_objects, timestamp)
-
-        log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
-                logLevel=logging.DEBUG)
-
+    def _prepare_and_commit_on_remote_apply(self, patch_objects, patchedText, timestamp):
         forward = history.HistoryEntry(patch=patch_objects,
                                        timestamp=timestamp,
                                        is_owner=False)
@@ -157,10 +81,24 @@ class DiffMatchPatchAlgorithm(CommandLocator):
                                         is_owner=False)
         self.history.commit_with_rollback(forward, backward)
 
-        self.currentText = patchedText
+    @ApplyPatchCommand.responder
+    def remote_applyPatch(self, patch, timestamp):
+        log.msg('{0}: remote patch applying'.format(self.name), logLevel=logging.DEBUG)
+        # serialize and try to patch
+        patch_objects = self.dmp.patch_fromText(patch)
+        patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
+        if False in result:
+            # if failed then recovery
+            self.log_failed_apply_patch()
+            self.start_recovery(patch_objects, timestamp)
 
+        log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
+                logLevel=logging.DEBUG)
+        self._prepare_and_commit_on_remote_apply(patch_objects, patchedText, timestamp)
+        self.currentText = patchedText
         log.msg('{0}: <after.model>{1}</after.model>'.format(self.name, self.currentText),
                 logLevel=logging.DEBUG)
+
         return {'succeed': True}
 
     @GetTextCommand.responder
@@ -169,74 +107,21 @@ class DiffMatchPatchAlgorithm(CommandLocator):
             raise NoTextAvailableException()
         return {'text': self.local_text}
 
-    def start_recovery(self, patch_objects, timestamp):
-        """
-        Процедура RECOVERY.
-        :param patch_objects: list [libs.dmp.diff_match_patch.patch_obj] Список патчей
-        :param timestamp: временная метка
-        """
-        assert self.name != 'Coordinator'
-        log.msg('{0}: starting recovery...'.format(self.name), logLevel=logging.DEBUG)
-
-        pop_stack = []
-        not_enough_rolled_back = True
-        while not_enough_rolled_back:
-            to_be_rolled_back = self.history.rollback_history.pop()
-            to_be_roll_forward = self.history.history.pop()
-            pop_stack.append((to_be_rolled_back, to_be_roll_forward))
-
-            patchedText, result = self.dmp.patch_apply(to_be_rolled_back.patch, self.currentText)
-            if False in result:
-                raise RollbackFailedException('Check consistency of the rollback_history. Cannot rollback history')
-            self.currentText = patchedText
-
-            patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
-            # everything all right rolled back and patch is perfect match this version
-            if False in result:
-                not_enough_rolled_back = True
-            else:
-                self.currentText = patchedText
-                not_enough_rolled_back = False
-
-        # # noinspection PyUnusedLocal
-        # rolled_back_patches = self.rollback_uncommon_patches(patch_objects, timestamp)
-        # try:
-        #     self.silently_apply_patch(patch_objects, timestamp, False)
-        # except FailedToApplyPatchSilentlyException as e:
-        #     e.message = 'This must never happen.'
-        #     raise e
-        #     # ha-ha todo: add new steps
-
-    # noinspection PyUnusedLocal
-    def rollback_uncommon_patches(self, patch_objects, timestamp):
-        """
-        Откатить конфликтные патчи из истории.
-        :param patch_objects: list [libs.dmp.diff_match_patch.patch_obj] Список патчей
-        :return: list [HistoryEntry]
-        """
-        rolled_back_patches = []
-        possibly_conflicted_entries = self.history.get_all_since(timestamp)
-        log.msg('ROLLED BACK NEXT HISTORY ENTRIES:{0}'.format(possibly_conflicted_entries),
-                logLevel=logging.DEBUG)
-        rolled_back_patches.extend(possibly_conflicted_entries)
-        return rolled_back_patches
-
     def log_failed_apply_patch(self):
         log.msg('{0}: remote patch is not applied'.format(self.name), logLevel=logging.DEBUG)
 
-    def silently_apply_patch(self, patches, timestamp, is_owner):
-        patchedText, result = self.dmp.patch_apply(patches, self.currentText)
-        if False in result:
-            self.log_failed_apply_patch()
-            raise FailedToApplyPatchSilentlyException()
+    def _prepare_and_commit_on_local_changes(self, patches, nextText, timestamp):
+        forward = history.HistoryEntry(patch=patches,
+                                       timestamp=timestamp,
+                                       is_owner=True)
+        backward = history.HistoryEntry(patch=self.dmp.patch_make(nextText, self.currentText),
+                                        timestamp=timestamp,
+                                        is_owner=True)
+        self.history.commit_with_rollback(forward, backward)
+        return
 
-        log.msg('{0}: <silent.before.model>{1}</silent.before.model>'.format(self.name, self.currentText),
-                logLevel=logging.DEBUG)
-
-        self.history.commit(patch=patches, timestamp=timestamp, is_owner=is_owner)  # todo: CHANGE THIS COMMIT METHOD!!
-        self.currentText = patchedText
-        log.msg('{0}: <silent.after.model>{1}</silent.after.model>'.format(self.name, self.currentText),
-                logLevel=logging.DEBUG)
+    def start_recovery(self, patch_objects, timestamp):
+        self.time_machine.start_recovery(patch_objects, timestamp)
 
 
 class NetworkApplicationConfig(object):
@@ -412,7 +297,7 @@ class CoordinatorLocatorDecorator(CommandLocator):
 
 class CoordinatorDiffMatchPatchAlgorithm(DiffMatchPatchAlgorithm):
     def start_recovery(self, patch_objects, timestamp):
-        raise PatchIsNotApplicableException('Sorry. Thats conflict.')
+        raise PatchIsNotApplicableException('Sorry. Your patch is protuh')
 
 
 class CoordinatorApplication(Application):

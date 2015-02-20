@@ -1,5 +1,9 @@
 # coding=utf-8
 from collections import namedtuple
+import logging
+import time
+from libs.dmp.diff_match_patch import diff_match_patch
+from twisted.python import log
 
 __author__ = 'snowy'
 
@@ -42,3 +46,79 @@ class HistoryLine(object):
 
     def get_all_since(self, timestamp):
         return [entry for entry in self.history if entry.timestamp > timestamp]
+
+
+class RollbackFailedException(Exception):
+    pass
+
+
+class FailedToApplyPatchSilentlyException(Exception):
+    pass
+
+
+class TimeMachine(object):
+    def __init__(self, history_line, owner):
+        """
+
+        :param history_line: HistoryLine
+        :param owner: DiffMatchPatchAlgorithm
+        """
+        from core.core import DiffMatchPatchAlgorithm
+
+        assert isinstance(owner, DiffMatchPatchAlgorithm)
+        assert isinstance(history_line, HistoryLine)
+        self.owner = owner
+        self.history = history_line
+        self.strict_dmp = diff_match_patch()
+        self.strict_dmp.Match_Threshold = 0.0
+
+    @staticmethod
+    def get_current_timestamp():
+        return time.time()
+
+    def _pop_one_commit(self, pop_stack):
+        to_be_rolled_back = self.history.rollback_history.pop()
+        to_be_roll_forward = self.history.history.pop()
+        pop_stack.append((to_be_rolled_back, to_be_roll_forward))
+        return to_be_rolled_back, to_be_roll_forward
+
+    def _rollback(self, to_be_rolled_back_patch):
+        patchedText, result = self.strict_dmp.patch_apply(to_be_rolled_back_patch, self.owner.currentText)
+        if False in result:
+            raise RollbackFailedException('Check consistency of the rollback_history. Cannot rollback history')
+        self.owner.currentText = patchedText
+
+    # noinspection PyUnusedLocal
+    def start_recovery(self, patch_objects, timestamp):
+        """
+        Процедура RECOVERY.
+        :param patch_objects: list [libs.dmp.diff_match_patch.patch_obj] Список патчей
+        :param timestamp: временная метка
+        """
+        assert self.owner.name != 'Coordinator'
+        log.msg('{0}: starting recovery...'.format(self.owner.name), logLevel=logging.DEBUG)
+
+        pop_stack = []
+        while True:  # todo: what if there is no pop and match?
+            # pop one commit, roll it back and try patch
+            to_be_rolled_back, _ = self._pop_one_commit(pop_stack)
+            self._rollback(to_be_rolled_back.patch)
+            # try patch
+            is_perfect_match = self._try_patch(patch_objects)
+            if is_perfect_match:
+                log.msg('{0}: recovery has stopped. Everything seems okay now.'.format(self.owner.name))
+                break
+
+    def _try_patch(self, patch_objects):
+        """
+        Попробовать применить патч
+        :param patch_objects:
+        :return: bool is successful patch
+        """
+        patchedText, result = self.strict_dmp.patch_apply(patch_objects, self.owner.currentText)
+        if False in result:
+            return False
+        else:
+            # everything all right rolled back and patch is perfect match this version
+            self.owner.currentText = patchedText
+            return True

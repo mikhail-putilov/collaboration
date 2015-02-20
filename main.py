@@ -53,11 +53,6 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         if self.view.is_read_only():
             raise ViewIsReadOnlyException("View(id={0}) is read only. Cannot be modified".format(self.view.id()))
 
-        delta_ = timestamp - (time.time() + self.global_delta)
-        if delta_ > 0:
-            # log.msg('SublimeAwareAlgorithm: delta_={0}'.format(delta_), logLevel=logging.DEBUG)
-            self.ownerApplication.global_delta = delta_ * 1.001
-
         edit = self.view.begin_edit()
         try:
             # log.msg('{0}: <before.view>{1}</before.view>'.format(self.name,
@@ -128,4 +123,4 @@ def run_every_second():
         app = init.registry[view_id].application
         allTextRegion = sublime.Region(0, app.view.size())
         allText = app.view.substr(allTextRegion)
-        app.algorithm.local_onTextChanged(allText).addErrback(init.log_any_failure_and_errmsg_eb)
+        app.algorithm.local_onTextChanged(allText)#.addErrback(init.log_any_failure_and_errmsg_eb)
