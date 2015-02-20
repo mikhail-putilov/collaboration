@@ -30,6 +30,10 @@ class FailedToApplyPatchSilentlyException(Exception):
     pass
 
 
+class RollbackFailedException(Exception):
+    pass
+
+
 class DiffMatchPatchAlgorithm(CommandLocator):
     # todo: remove
     # noinspection PyUnreachableCode,PyAttributeOutsideInit,PyUnusedLocal
@@ -110,7 +114,14 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         if not patches:
             return ApplyPatchCommand.no_work_is_done_response
         timestamp = self.get_current_timestamp()
-        self.history.commit(patch=patches, timestamp=timestamp, is_owner=True)
+        forward = history.HistoryEntry(patch=patches,
+                                       timestamp=timestamp,
+                                       is_owner=True)
+        backward = history.HistoryEntry(patch=self.dmp.patch_make(nextText, self.currentText),
+                                        timestamp=timestamp,
+                                        is_owner=True)
+        self.history.commit_with_rollback(forward, backward)
+
         self.currentText = nextText
 
         if self.clientProtocol is None:
@@ -138,7 +149,14 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
                 logLevel=logging.DEBUG)
 
-        self.history.commit(patch=patch_objects, timestamp=timestamp, is_owner=False)
+        forward = history.HistoryEntry(patch=patch_objects,
+                                       timestamp=timestamp,
+                                       is_owner=False)
+        backward = history.HistoryEntry(patch=self.dmp.patch_make(patchedText, self.currentText),
+                                        timestamp=timestamp,
+                                        is_owner=False)
+        self.history.commit_with_rollback(forward, backward)
+
         self.currentText = patchedText
 
         log.msg('{0}: <after.model>{1}</after.model>'.format(self.name, self.currentText),
@@ -160,16 +178,34 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         assert self.name != 'Coordinator'
         log.msg('{0}: starting recovery...'.format(self.name), logLevel=logging.DEBUG)
 
-        # todo: add here iteration; rollback, try patch, rollback, try patch
+        pop_stack = []
+        not_enough_rolled_back = True
+        while not_enough_rolled_back:
+            to_be_rolled_back = self.history.rollback_history.pop()
+            to_be_roll_forward = self.history.history.pop()
+            pop_stack.append((to_be_rolled_back, to_be_roll_forward))
 
-        # noinspection PyUnusedLocal
-        rolled_back_patches = self.rollback_uncommon_patches(patch_objects, timestamp)
-        try:
-            self.silently_apply_patch(patch_objects, timestamp, False)
-        except FailedToApplyPatchSilentlyException as e:
-            e.message = 'This must never happen.'
-            raise e
-            # ha-ha todo: add new steps
+            patchedText, result = self.dmp.patch_apply(to_be_rolled_back.patch, self.currentText)
+            if False in result:
+                raise RollbackFailedException('Check consistency of the rollback_history. Cannot rollback history')
+            self.currentText = patchedText
+
+            patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
+            # everything all right rolled back and patch is perfect match this version
+            if False in result:
+                not_enough_rolled_back = True
+            else:
+                self.currentText = patchedText
+                not_enough_rolled_back = False
+
+        # # noinspection PyUnusedLocal
+        # rolled_back_patches = self.rollback_uncommon_patches(patch_objects, timestamp)
+        # try:
+        #     self.silently_apply_patch(patch_objects, timestamp, False)
+        # except FailedToApplyPatchSilentlyException as e:
+        #     e.message = 'This must never happen.'
+        #     raise e
+        #     # ha-ha todo: add new steps
 
     # noinspection PyUnusedLocal
     def rollback_uncommon_patches(self, patch_objects, timestamp):
@@ -197,7 +233,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         log.msg('{0}: <silent.before.model>{1}</silent.before.model>'.format(self.name, self.currentText),
                 logLevel=logging.DEBUG)
 
-        self.history.commit(patch=patches, timestamp=timestamp, is_owner=is_owner)
+        self.history.commit(patch=patches, timestamp=timestamp, is_owner=is_owner)  # todo: CHANGE THIS COMMIT METHOD!!
         self.currentText = patchedText
         log.msg('{0}: <silent.after.model>{1}</silent.after.model>'.format(self.name, self.currentText),
                 logLevel=logging.DEBUG)
