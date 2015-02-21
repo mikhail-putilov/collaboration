@@ -3,6 +3,8 @@
 Основная функциональность. Инкапсулировано от sublime.
 Вся бизнес-работа выполняется на основе diff_match_patch объекта.
 """
+from misc import ApplicationSpecificAdapter
+
 __author__ = 'snowy'
 import logging
 
@@ -10,13 +12,14 @@ from twisted.protocols.amp import CommandLocator, AMP
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory, ServerFactory
-from twisted.python import log
 
 import history
 from command import *
 from exceptions import *
 from other import *
 from libs.dmp import diff_match_patch
+
+logger = logging.getLogger(__name__)
 
 
 class CannotConnectToNTPServerException(Exception):
@@ -35,6 +38,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         self.dmp = diff_match_patch()
         self.history = history_line
         self.time_machine = history.TimeMachine(history_line, self)
+        self.logger = ApplicationSpecificAdapter(logger, {'name': name})
 
     @property
     def local_text(self):
@@ -46,6 +50,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         Заменить текущий текст без сайд-эффектов
         :param text: str
         """
+        self.logger.debug('text is currently replaced without any side-effects')
         self.currentText = text
 
     def local_onTextChanged(self, nextText):
@@ -55,7 +60,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         :param nextText: str текст, который является более новой версией текущего текста self.currentText
         """
         if self.clientProtocol is None:
-            log.msg('Client protocol is None', logLevel=logging.DEBUG)
+            self.logger.debug('client protocol is None')
             return ApplyPatchCommand.no_work_is_done_response
 
         patches = self.dmp.patch_make(self.currentText, nextText)
@@ -67,10 +72,11 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         serialized = self.dmp.patch_toText(patches)
         if not serialized:
             return ApplyPatchCommand.no_work_is_done_response
-        log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
+        self.logger.debug('sending patch:\n<patch>\n%s</patch>', serialized)
 
         def _eb(failure):
             failure.trap(PatchIsNotApplicableException)
+            self.logger.warning('my patch is protuh. My best choice is pull-push strategy now')
             return {'succeed': False}
 
         return self.clientProtocol.callRemote(TryApplyPatchCommand,
@@ -88,26 +94,22 @@ class DiffMatchPatchAlgorithm(CommandLocator):
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch, timestamp):
-        log.msg('{0}: remote patch applying'.format(self.name), logLevel=logging.DEBUG)
+        self.logger.debug('remote patch applying:\n<patch>\n%s</patch>', patch)
         # serialize and try to patch
         patch_objects = self.dmp.patch_fromText(patch)
         patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
         if False in result:
             # if failed then recovery
             self.log_failed_apply_patch('\n'.join([str(patch) for patch in patch_objects]))
-            log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
-                    logLevel=logging.DEBUG)
+            self.logger.debug('\n<before.model>%s</before.model>', self.currentText)
             self.start_recovery(patch_objects, timestamp)
-            log.msg('{0}: <after.model>{1}</after.model>'.format(self.name, self.currentText),
-                    logLevel=logging.DEBUG)
+            self.logger.debug('\n<after.model>%s</after.model>', self.currentText)
             return {'succeed': True}
 
-        log.msg('{0}: <before.model>{1}</before.model>'.format(self.name, self.currentText),
-                logLevel=logging.DEBUG)
+        self.logger.debug('\n<before.model>%s</before.model>', self.currentText)
         self._prepare_and_commit_on_remote_apply(patch_objects, patchedText, timestamp)
         self.currentText = patchedText
-        log.msg('{0}: <after.model>{1}</after.model>'.format(self.name, self.currentText),
-                logLevel=logging.DEBUG)
+        self.logger.debug('\n<after.model>%s</after.model>', self.currentText)
 
         return {'succeed': True}
 
@@ -118,7 +120,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         return {'text': self.local_text}
 
     def log_failed_apply_patch(self, patch):
-        log.msg('{0}: remote patch is not applied: <patch>{1}</patch>'.format(self.name, patch), logLevel=logging.DEBUG)
+        self.logger.debug('remote patch is not applied:\n<patch>\n%s</patch>', patch)
 
     def _prepare_and_commit_on_local_changes(self, patches, nextText, timestamp):
         forward = history.HistoryEntry(patch=patches,
@@ -274,10 +276,10 @@ class CoordinatorLocatorDecorator(CommandLocator):
         # self.main_locator должен строго относиться к нарушению контекста патча.
         # Поэтому необходимо включить set_perfect_matching
         self.set_perfect_matching()
+        self.logger = ApplicationSpecificAdapter(logger, {'name': self.decorated_locator.name})
 
     @TryApplyPatchCommand.responder
     def try_apply_patch(self, patch, timestamp):
-        log.msg('{0}: trying to apply patch...'.format(self.decorated_locator.name), logLevel=logging.DEBUG)
         # если applyPatch не пройдет, то будет вызвано исключение и
         # вызывающий пир будет уведомлен о PatchIsNotApplicableException
         self.decorated_locator.remote_applyPatch(patch, timestamp)

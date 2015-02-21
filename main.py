@@ -87,13 +87,13 @@ class SublimeAwareTimeMachine(TimeMachine):
             region = sublime.Region(a, b)
 
             self.logger.debug(
-                'replace(%d,%d), "%s"--->"%s"' % (region.a, region.b, self.view.substr(region), insertion_text))
+                'replace(%d,%d), "%s"--->"%s"', region.a, region.b, self.view.substr(region), insertion_text)
             self.view.replace(edit, region, insertion_text)
 
         elif command_type == 'erase':
             assert len(command) < 4
             region = sublime.Region(sublime_start, sublime_stop)
-            self.logger.debug('erase(%d,%d), "%s"--->""' % (region.a, region.b, self.view.substr(region)))
+            self.logger.debug('erase(%d,%d), "%s"--->""', region.a, region.b, self.view.substr(region))
             self.view.erase(edit, region)
 
         else:
@@ -128,7 +128,7 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         edit = self.view.begin_edit()
         try:
             all_text = self.view.substr(sublime.Region(0, self.view.size()))
-            self.logger.debug('<before.view>%s</before.view>' % (all_text, ))
+            self.logger.debug('<before.view>%s</before.view>', all_text)
             respond = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
             for sublime_command in self.dmp.sublime_patch_commands:
                 self.process_sublime_command(edit, sublime_command)
@@ -136,7 +136,7 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         finally:
             self.view.end_edit(edit)
             all_text = self.view.substr(sublime.Region(0, self.view.size()))
-            self.logger.debug('<after.view>%s</after.view>' % (all_text, ))
+            self.logger.debug('<after.view>%s</after.view>', all_text)
 
     def local_onTextChanged(self, nextText):
         d = super(SublimeAwareAlgorithm, self).local_onTextChanged(nextText)
@@ -186,13 +186,13 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             region = sublime.Region(a, b)
 
             self.logger.debug(
-                'replace(%d,%d), "%s"--->"%s"' % (region.a, region.b, self.view.substr(region), insertion_text))
+                'replace(%d,%d), "%s"--->"%s"', region.a, region.b, self.view.substr(region), insertion_text)
             self.view.replace(edit, region, insertion_text)
 
         elif command_type == 'erase':
             assert len(command) < 4
             region = sublime.Region(sublime_start, sublime_stop)
-            self.logger.debug('erase(%d,%d), "%s"--->""' % (region.a, region.b, self.view.substr(region)))
+            self.logger.debug('erase(%d,%d), "%s"--->""', region.a, region.b, self.view.substr(region))
             self.view.erase(edit, region)
 
         else:
