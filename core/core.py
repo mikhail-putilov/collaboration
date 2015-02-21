@@ -70,8 +70,9 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         log.msg('{0}: sending patch:\n<patch>\n{1}</patch>'.format(self.name, serialized), logLevel=logging.DEBUG)
 
         def _eb(failure):
-            failure.trap(PatchIsNotApplicableException)  # todo: add pull-push strategy
-            return {'succeed': True}
+            failure.trap(PatchIsNotApplicableException)
+            return {'succeed': False}
+
         return self.clientProtocol.callRemote(TryApplyPatchCommand,
                                               patch=serialized,
                                               timestamp=timestamp).addErrback(_eb)

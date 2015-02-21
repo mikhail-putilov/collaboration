@@ -7,6 +7,10 @@ from history import TimeMachine
 import init
 # noinspection PyUnresolvedReferences
 import sublime
+import logging
+from misc import ApplicationSpecificAdapter
+
+logger = logging.getLogger(__name__)
 
 __author__ = 'snowy'
 
@@ -33,6 +37,11 @@ class ViewIsReadOnlyException(Exception):
 class SublimeAwareTimeMachine(TimeMachine):
     view = None
     ":type view: sublime.View"
+
+    def __init__(self, history_line, owner):
+        super(SublimeAwareTimeMachine, self).__init__(history_line, owner)
+        self.logger = ApplicationSpecificAdapter(logger, {'name': self.owner.name})
+
     def start_recovery(self, patch_objects, timestamp):
         edit = self.view.begin_edit()
         text_before_recovery = self.view.substr(sublime.Region(0, self.view.size()))
@@ -77,13 +86,14 @@ class SublimeAwareTimeMachine(TimeMachine):
             b = sublime_stop - null_padding_len - real_right_padding
             region = sublime.Region(a, b)
 
-            print ('replace({0},{1})'.format(region.a, region.b), self.view.substr(region), '--->', insertion_text)
+            self.logger.debug(
+                'replace(%d,%d), "%s"--->"%s"' % (region.a, region.b, self.view.substr(region), insertion_text))
             self.view.replace(edit, region, insertion_text)
 
         elif command_type == 'erase':
             assert len(command) < 4
             region = sublime.Region(sublime_start, sublime_stop)
-            print ('erase({0},{1})'.format(region.a, region.b), '--->', self.view.substr(region))
+            self.logger.debug('erase(%d,%d), "%s"--->""' % (region.a, region.b, self.view.substr(region)))
             self.view.erase(edit, region)
 
         else:
@@ -108,6 +118,7 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         self.dmp.view = view
         self.ownerApplication = ownerApplication
         ":type ownerApplication: SublimeAwareApplication"
+        self.logger = ApplicationSpecificAdapter(logger, {'name': self.name})
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch, timestamp):
@@ -116,18 +127,29 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
 
         edit = self.view.begin_edit()
         try:
-            # log.msg('{0}: <before.view>{1}</before.view>'.format(self.name,
-            #                                                      self.view.substr(sublime.Region(0, self.view.size()))),
-            #         logLevel=logging.DEBUG)
+            all_text = self.view.substr(sublime.Region(0, self.view.size()))
+            self.logger.debug('<before.view>%s</before.view>' % (all_text, ))
             respond = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
             for sublime_command in self.dmp.sublime_patch_commands:
                 self.process_sublime_command(edit, sublime_command)
             return respond
         finally:
             self.view.end_edit(edit)
-            # log.msg('{0}: <after.view>{1}</after.view>'.format(self.name,
-            #                                                    self.view.substr(sublime.Region(0, self.view.size()))),
-            #         logLevel=logging.DEBUG)
+            all_text = self.view.substr(sublime.Region(0, self.view.size()))
+            self.logger.debug('<after.view>%s</after.view>' % (all_text, ))
+
+    def local_onTextChanged(self, nextText):
+        d = super(SublimeAwareAlgorithm, self).local_onTextChanged(nextText)
+
+        def cb(result):
+            edit = self.view.begin_edit()
+            try:
+                if not result['succeed']:
+                    self.pull_push_strategy()
+            finally:
+                self.view.end_edit(edit)
+
+        return d.addCallback(cb)
 
     def process_sublime_command(self, edit, command):
         """
@@ -163,17 +185,21 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             b = sublime_stop - null_padding_len - real_right_padding
             region = sublime.Region(a, b)
 
-            print ('replace({0},{1})'.format(region.a, region.b), self.view.substr(region), '--->', insertion_text)
+            self.logger.debug(
+                'replace(%d,%d), "%s"--->"%s"' % (region.a, region.b, self.view.substr(region), insertion_text))
             self.view.replace(edit, region, insertion_text)
 
         elif command_type == 'erase':
             assert len(command) < 4
             region = sublime.Region(sublime_start, sublime_stop)
-            print ('erase({0},{1})'.format(region.a, region.b), '--->', self.view.substr(region))
+            self.logger.debug('erase(%d,%d), "%s"--->""' % (region.a, region.b, self.view.substr(region)))
             self.view.erase(edit, region)
 
         else:
             raise NotThatTypeOfCommandError()
+
+    def pull_push_strategy(self):
+        pass
 
 
 def run_every_second():
@@ -184,4 +210,4 @@ def run_every_second():
         app = init.registry[view_id].application
         allTextRegion = sublime.Region(0, app.view.size())
         allText = app.view.substr(allTextRegion)
-        app.algorithm.local_onTextChanged(allText)#.addErrback(init.log_any_failure_and_errmsg_eb)
+        app.algorithm.local_onTextChanged(allText)  # .addErrback(init.log_any_failure_and_errmsg_eb)
