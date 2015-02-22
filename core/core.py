@@ -3,9 +3,10 @@
 Основная функциональность. Инкапсулировано от sublime.
 Вся бизнес-работа выполняется на основе diff_match_patch объекта.
 """
+__author__ = 'snowy'
+from libs.dmp.diff_match_patch import patch_obj
 from misc import ApplicationSpecificAdapter
 
-__author__ = 'snowy'
 import logging
 
 from twisted.protocols.amp import CommandLocator, AMP
@@ -76,7 +77,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
 
         def _eb(failure):
             failure.trap(PatchIsNotApplicableException)
-            self.logger.warning('my patch is protuh. My best choice is pull-push strategy now')
+            self.logger.warning(str(failure))
             return {'succeed': False}
 
         return self.clientProtocol.callRemote(TryApplyPatchCommand,
@@ -94,15 +95,21 @@ class DiffMatchPatchAlgorithm(CommandLocator):
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch, timestamp):
-        self.logger.debug('remote patch applying:\n<patch>\n%s</patch>', patch)
-        # serialize and try to patch
-        patch_objects = self.dmp.patch_fromText(patch)
+        is_patch_objects = hasattr(patch, '__getitem__') and (len(patch) == 0 or isinstance(patch[0], patch_obj))
+        assert isinstance(patch, basestring) or is_patch_objects
+        if isinstance(patch, basestring):
+            self.logger.debug('remote patch applying:\n<patch>\n%s</patch>', patch)
+        else:
+            self.logger.debug('locally force applying:\n<patch>\n%s</patch>', ''.join([str(p) for p in patch]))
+        # serialize if needed and try to patch
+        patch_objects = self.dmp.patch_fromText(patch) if isinstance(patch, basestring) else patch
         patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
         if False in result:
             # if failed then recovery
+            before_text = self.currentText
             self.log_failed_apply_patch('\n'.join([str(patch) for patch in patch_objects]))
-            self.logger.debug('\n<before.model>%s</before.model>', self.currentText)
             self.start_recovery(patch_objects, timestamp)
+            self.logger.debug('\n<before.model>%s</before.model>', before_text)
             self.logger.debug('\n<after.model>%s</after.model>', self.currentText)
             return {'succeed': True}
 
@@ -309,7 +316,8 @@ class CoordinatorLocatorDecorator(CommandLocator):
 
 class CoordinatorDiffMatchPatchAlgorithm(DiffMatchPatchAlgorithm):
     def start_recovery(self, patch_objects, timestamp):
-        raise PatchIsNotApplicableException('Sorry. Your patch is protuh')
+        raise PatchIsNotApplicableException('Your following patch is rejected:\n<patch>\n{0}</patch>'.format(
+            ''.join([str(patch) for patch in patch_objects])))
 
 
 class CoordinatorApplication(Application):
