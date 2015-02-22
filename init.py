@@ -3,7 +3,6 @@
 Модуль начальной инициализации sublime плагина. Включает в себя в основном наследников sublime_plugin.TextCommand.
 Логически является специфичной sublime оберткой над main модулем.
 """
-from core.other import print_it
 import main
 
 __author__ = 'snowy'
@@ -15,7 +14,7 @@ from collections import namedtuple
 from twisted.python import log
 
 from reactor import reactor
-
+logger = logging.getLogger(__name__)
 
 registry = {}
 """:type registry: dict that maps "view_id" → "RegistryEntry" """
@@ -179,7 +178,6 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.TextCommand):
 
         coordinator_created_cb = lambda ignore: self.connect_to_each_other(views[0], views[1])
         self.run_coordinator_server().addCallback(coordinator_created_cb)
-        reactor.callLater(1, lambda : print_it('\n' * 25))
 
     @staticmethod
     def connect_to_each_other(view1, view2):
@@ -234,6 +232,7 @@ class Collaboration(sublime_plugin.ApplicationCommand):
                 running = False
         else:
             raise StartOrStopArgumentIllegalValues('Available values are "start" or "stop".')
+        logger.info('{0} collaboration\'s inited {0}'.format('---*---'))
 
 
 class TerminateCollaborationCommand(sublime_plugin.ApplicationCommand):

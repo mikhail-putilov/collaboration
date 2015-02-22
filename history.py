@@ -3,14 +3,14 @@ from collections import namedtuple
 import logging
 import time
 
-from twisted.python import log
-
 from libs.dmp.diff_match_patch import diff_match_patch
+from misc import ApplicationSpecificAdapter
 
 
 __author__ = 'snowy'
 
 HistoryEntry = namedtuple('HistoryEntry', ['patch', 'timestamp', 'is_owner'])
+logger = logging.getLogger(__name__)
 
 
 class HistoryLine(object):
@@ -76,6 +76,7 @@ class TimeMachine(object):
         self.strict_dmp.Match_Threshold = 0.0
         self.loose_dmp = diff_match_patch()
         self.loose_dmp.Match_Threshold = 1.0
+        self.logger = ApplicationSpecificAdapter(logger, {'name': owner.name})
 
     @staticmethod
     def get_current_timestamp():
@@ -94,8 +95,7 @@ class TimeMachine(object):
             raise RollbackFailedException(
                 'Check consistency of the rollback_history. '
                 'Cannot rollback history. <patch>{0}</patch>'.format(serialized))
-        log.msg('{0}: rolled back: <patch>{1}</patch>'.format(self.owner.name, serialized),
-                logLevel=logging.DEBUG)
+        self.logger.debug('rolled back: <patch>%s</patch>', serialized)
         self.owner.currentText = patchedText
 
     # noinspection PyUnusedLocal
@@ -106,7 +106,7 @@ class TimeMachine(object):
         :param timestamp: временная метка
         """
         assert self.owner.name != 'Coordinator'
-        log.msg('{0}: starting recovery...'.format(self.owner.name), logLevel=logging.DEBUG)
+        self.logger.info('starting recovery...')
 
         pop_stack = []
         while True:  # todo: what if there is no pop and match?
@@ -117,7 +117,7 @@ class TimeMachine(object):
             is_perfect_match = self._try_patch(patch_objects)
             if is_perfect_match:
                 self._rollforward(pop_stack)
-                log.msg('{0}: recovery has stopped. Everything seems okay now.'.format(self.owner.name))
+                self.logger.info('recovery has stopped. Everything seems okay now.')
                 break
 
     def _try_patch(self, patch_objects):
@@ -132,6 +132,8 @@ class TimeMachine(object):
         else:
             # everything all right rolled back and patch is perfect match this version
             self.owner.currentText = patchedText
+            self.logger.debug('conflicts are fixed. The following patch\'s applied: <patch>%s</patch>',
+                              ''.join([str(patch) for patch in patch_objects]))
             return True
 
     def _rollforward(self, pop_stack):
@@ -139,8 +141,6 @@ class TimeMachine(object):
             patchedText, result = self.loose_dmp.patch_apply(forward.patch, self.owner.currentText)
             serialized = '\n'.join([str(patch) for patch in forward.patch])
             if False in result:
-                template = '{0}: could not roll forward even with loose matching: <patch>{1}</patch>'
-                log.msg(template.format(self.owner.name, serialized), logLevel=logging.DEBUG)
+                self.logger.debug('could not roll forward even with loose matching: <patch>%s</patch>', serialized)
             self.owner.currentText = patchedText
-            forward_template = '{0}: rolled forward: <patch>{1}</patch>'
-            log.msg(forward_template.format(self.owner.name, serialized), logLevel=logging.DEBUG)
+            self.logger.debug('rolled forward: <patch>%s</patch>', serialized)
