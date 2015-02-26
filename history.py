@@ -77,6 +77,8 @@ class TimeMachine(object):
         self.loose_dmp = diff_match_patch()
         self.loose_dmp.Match_Threshold = 1.0
         self.logger = ApplicationSpecificAdapter(logger, {'name': owner.name})
+        # buffer text which determines state of the time machine
+        self.model_text = None
 
     @staticmethod
     def get_current_timestamp():
@@ -107,7 +109,10 @@ class TimeMachine(object):
         """
         assert self.owner.name != 'Coordinator'
         self.logger.info('starting recovery...')
+        text_before = self.owner.currentText
+        # to be recovered text:
         self.model_text = self.owner.currentText
+        good_guy = None
         pop_stack = []
         while True:  # todo: what if there is no pop and match?
             # pop one commit, roll it back and try patch
@@ -116,11 +121,13 @@ class TimeMachine(object):
             # try patch
             is_perfect_match = self._try_patch(patch_objects)
             if is_perfect_match:
+                self.owner.currentText = self.model_text
                 self._rollforward(pop_stack)
                 self.logger.info('recovery has stopped. Everything seems okay now. Lets try again')
                 break
-        self.owner.remote_applyPatch(self.strict_dmp.diff_main(self.owner.currentText, self.model_text),
-                                     self.get_current_timestamp())
+        if text_before == self.owner.currentText:  # todo: possible bug:
+            import spdb ; spdb.start(0)
+            self.owner.local_onTextChanged(self.model_text)
 
     def _try_patch(self, patch_objects):
         """

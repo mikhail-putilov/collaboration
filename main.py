@@ -148,18 +148,12 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             all_text = self.view.substr(sublime.Region(0, self.view.size()))
             self.logger.debug('view modifications are ended: <after.view>%s</after.view>', all_text)
 
-    def local_onTextChanged(self, nextText):
-        d = super(SublimeAwareAlgorithm, self).local_onTextChanged(nextText)
-
-        def cb(result):
-            edit = self.view.begin_edit()
-            try:
-                if not result['succeed']:
-                    self.pull_push_strategy()
-            finally:
-                self.view.end_edit(edit)
-
-        return d.addCallback(cb)
+    def start_recovery(self, patch_objects, timestamp):
+        super(SublimeAwareAlgorithm, self).start_recovery(patch_objects, timestamp)
+        edit = self.view.begin_edit()
+        for command in self.dmp.sublime_patch_commands:
+            self.process_sublime_command(edit, command)
+        self.view.end_edit(edit)
 
     def process_sublime_command(self, edit, command):
         """

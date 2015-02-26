@@ -103,6 +103,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
             self.logger.debug('locally force applying:\n<patch>\n%s</patch>', ''.join([str(p) for p in patch]))
         # serialize if needed and try to patch
         patch_objects = self.dmp.patch_fromText(patch) if isinstance(patch, basestring) else patch
+
         patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
         if False in result:
             # if failed then recovery
