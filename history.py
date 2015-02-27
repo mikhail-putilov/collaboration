@@ -126,7 +126,6 @@ class TimeMachine(object):
                 self.logger.info('recovery has stopped. Everything seems okay now. Lets try again')
                 break
         if text_before == self.owner.currentText:  # todo: possible bug:
-            import spdb ; spdb.start(0)
             self.owner.local_onTextChanged(self.model_text)
 
     def _try_patch(self, patch_objects):

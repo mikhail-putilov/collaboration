@@ -107,17 +107,13 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
         if False in result:
             # if failed then recovery
-            before_text = self.currentText
-            self.log_failed_apply_patch('\n'.join([str(patch) for patch in patch_objects]))
             self.start_recovery(patch_objects, timestamp)
-            self.logger.debug('\n<before.model>%s</before.model>', before_text)
-            self.logger.debug('\n<after.model>%s</after.model>', self.currentText)
             return {'succeed': True}
 
-        self.logger.debug('\n<before.model>%s</before.model>', self.currentText)
+        before_text = self.currentText
         self._prepare_and_commit_on_remote_apply(patch_objects, patchedText, timestamp)
         self.currentText = patchedText
-        self.logger.debug('\n<after.model>%s</after.model>', self.currentText)
+        self.log_model_text(before_text)
 
         return {'succeed': True}
 
@@ -140,8 +136,15 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         self.history.commit_with_rollback(forward, backward)
         return
 
+    def log_model_text(self, before_text):
+        self.logger.debug('\n<before.model>%s</before.model>\n<after.model>%s</after.model>', before_text,
+                          self.currentText)
+
     def start_recovery(self, patch_objects, timestamp):
+        before_text = self.currentText
+        self.log_failed_apply_patch('\n'.join([str(patch) for patch in patch_objects]))
         self.time_machine.start_recovery(patch_objects, timestamp)
+        self.log_model_text(before_text)
 
 
 class NetworkApplicationConfig(object):

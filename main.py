@@ -9,7 +9,7 @@ import init
 import sublime
 import logging
 # noinspection PyUnresolvedReferences
-from misc import ApplicationSpecificAdapter
+from misc import ApplicationSpecificAdapter, all_text_view
 
 logger = logging.getLogger(__name__)
 
@@ -47,18 +47,6 @@ class SublimeAwareTimeMachine(TimeMachine):
         """
         super(SublimeAwareTimeMachine, self).__init__(history_line, owner)
         self.logger = ApplicationSpecificAdapter(logger, {'name': self.owner.name})
-
-    def start_recovery(self, patch_objects, timestamp):
-        # edit = self.view.begin_edit()
-        text_before_recovery = self.owner.currentText
-        super(SublimeAwareTimeMachine, self).start_recovery(patch_objects, timestamp)
-        text_after_recovery = self.owner.currentText
-        # patches = self.strict_dmp.diff_main(text_before_recovery, self.owner.currentText)
-        # self.logger.debug('Model text change: "%s" -> "%s"', text_before_recovery, self.owner.currentText)
-        # self.strict_dmp.patch_apply(patches, text_before_recovery)
-        # for sublime_command in self.strict_dmp.sublime_patch_commands:
-        #     self.process_sublime_command(edit, sublime_command)
-        # self.view.end_edit(edit)
 
     def process_sublime_command(self, edit, command):
         """
@@ -135,18 +123,16 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         if self.view.is_read_only():
             raise ViewIsReadOnlyException('View(id={0}) is read only. Cannot be modified'.format(self.view.id()))
 
+        respond = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
+        self.logger.debug('starting view modifications:\n<before.view>%s</before.view>', all_text_view(self.view))
         edit = self.view.begin_edit()
         try:
-            all_text = self.view.substr(sublime.Region(0, self.view.size()))
-            self.logger.debug('starting view modifications: <before.view>%s</before.view>', all_text)
-            respond = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
             for sublime_command in self.dmp.sublime_patch_commands:
                 self.process_sublime_command(edit, sublime_command)
             return respond
         finally:
             self.view.end_edit(edit)
-            all_text = self.view.substr(sublime.Region(0, self.view.size()))
-            self.logger.debug('view modifications are ended: <after.view>%s</after.view>', all_text)
+            self.logger.debug('view modifications are ended:\n<after.view>%s</after.view>', all_text_view(self.view))
 
     def start_recovery(self, patch_objects, timestamp):
         super(SublimeAwareAlgorithm, self).start_recovery(patch_objects, timestamp)
@@ -188,10 +174,14 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             a = sublime_start - null_padding_len + real_left_padding
             b = sublime_stop - null_padding_len - real_right_padding
             region = sublime.Region(a, b)
-
-            self.logger.debug(
-                'replace(%d,%d), "%s"--->"%s"', region.a, region.b, self.view.substr(region), insertion_text)
-            self.view.replace(edit, region, insertion_text)
+            if region.a == region.b:
+                self.logger.debug(
+                    'insert(%d), "%s"--->"%s"', region.a, self.view.substr(region), insertion_text)
+                self.view.insert(edit, region.a, insertion_text)
+            else:
+                self.logger.debug(
+                    'replace(%d,%d), "%s"--->"%s"', region.a, region.b, self.view.substr(region), insertion_text)
+                self.view.replace(edit, region, insertion_text)
 
         elif command_type == 'erase':
             assert len(command) < 4

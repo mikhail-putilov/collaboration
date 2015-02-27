@@ -16,17 +16,11 @@ if libs_path not in sys.path:
 if twisted_path not in sys.path:
     sys.path.insert(0, twisted_path)
 
-from twisted.python import log
 
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s.%(msecs)d - %(name)s - %(levelname)s - %(message)s',
                     datefmt='%H:%M:%S')
 logger = logging.getLogger(__name__)
-logger.info('Log opened')
-
-observer = log.PythonLoggingObserver()
-observer.start()
-logger.info('Twisted observer started')
 logging.getLogger('main').setLevel(logging.DEBUG)
 logging.getLogger('core').setLevel(logging.DEBUG)
