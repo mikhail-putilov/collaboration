@@ -20,7 +20,6 @@ registry = {}
 """:type registry: dict that maps "view_id" → "RegistryEntry" """
 
 RegistryEntry = namedtuple('RegistryEntry', ['application', 'connection_string'])
-running = False
 
 
 def log_any_failure_and_errmsg_eb(failure):
@@ -228,11 +227,9 @@ class Collaboration(sublime_plugin.ApplicationCommand):
         elif start_or_stop == 'stop':
             if self.run_every_second_task.running:
                 self.run_every_second_task.stop()
-                global running
-                running = False
         else:
             raise StartOrStopArgumentIllegalValues('Available values are "start" or "stop".')
-        logger.info('{0} collaboration\'s inited {0}'.format('---*---'))
+        logger.info('{0} collaboration inited {0}'.format('---*---'))
 
 
 class TerminateCollaborationCommand(sublime_plugin.ApplicationCommand):
