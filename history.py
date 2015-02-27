@@ -126,7 +126,8 @@ class TimeMachine(object):
                 self.logger.info('recovery has stopped. Everything seems okay now. Lets try again')
                 break
         if text_before == self.owner.currentText:  # todo: possible bug:
-            self.owner.local_onTextChanged(self.model_text)
+            patches = self.owner.after_recovery(self.model_text)
+            self.owner.dmp.patch_apply(patches, text_before)
 
     def _try_patch(self, patch_objects):
         """

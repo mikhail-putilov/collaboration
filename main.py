@@ -192,9 +192,6 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         else:
             raise NotThatTypeOfCommandError()
 
-    def pull_push_strategy(self):
-        pass
-
 
 def run_every_second():
     """Функция, которая запускает синхронизацию между view"""

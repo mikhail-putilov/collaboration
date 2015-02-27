@@ -4,9 +4,6 @@
 Вся бизнес-работа выполняется на основе diff_match_patch объекта.
 """
 __author__ = 'snowy'
-from libs.dmp.diff_match_patch import patch_obj
-from misc import ApplicationSpecificAdapter
-
 import logging
 
 from twisted.protocols.amp import CommandLocator, AMP
@@ -14,11 +11,14 @@ from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory, ServerFactory
 
+from libs.dmp.diff_match_patch import patch_obj
+from misc import ApplicationSpecificAdapter
 import history
 from command import *
 from exceptions import *
 from other import *
 from libs.dmp import diff_match_patch
+
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,32 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         """
         self.logger.debug('text is currently replaced without any side-effects')
         self.currentText = text
+
+    def after_recovery(self, nextText):
+        if self.clientProtocol is None:
+            self.logger.debug('client protocol is None')
+            return ApplyPatchCommand.no_work_is_done_response
+
+        patches = self.dmp.patch_make(self.currentText, nextText)
+        if not patches:
+            return ApplyPatchCommand.no_work_is_done_response
+        timestamp = self.time_machine.get_current_timestamp()
+        self._prepare_and_commit_on_local_changes(patches, nextText, timestamp)
+        self.currentText = nextText
+        serialized = self.dmp.patch_toText(patches)
+        if not serialized:
+            return ApplyPatchCommand.no_work_is_done_response
+        self.logger.debug('sending patch:\n<patch>\n%s</patch>', serialized)
+
+        def _eb(failure):
+            failure.trap(PatchIsNotApplicableException)
+            self.logger.warning(str(failure))
+            return {'succeed': False}
+
+        self.clientProtocol.callRemote(TryApplyPatchCommand,
+                                       patch=serialized,
+                                       timestamp=timestamp).addErrback(_eb)
+        return patches
 
     def local_onTextChanged(self, nextText):
         """
@@ -141,10 +167,10 @@ class DiffMatchPatchAlgorithm(CommandLocator):
                           self.currentText)
 
     def start_recovery(self, patch_objects, timestamp):
-        before_text = self.currentText
+        # before_text = self.currentText
         self.log_failed_apply_patch('\n'.join([str(patch) for patch in patch_objects]))
         self.time_machine.start_recovery(patch_objects, timestamp)
-        self.log_model_text(before_text)
+        # self.log_model_text(before_text)
 
 
 class NetworkApplicationConfig(object):
