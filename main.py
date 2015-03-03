@@ -10,6 +10,7 @@ import sublime
 import logging
 # noinspection PyUnresolvedReferences
 from misc import ApplicationSpecificAdapter, all_text_view
+import misc
 
 logger = logging.getLogger(__name__)
 
@@ -123,11 +124,11 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         if self.view.is_read_only():
             raise ViewIsReadOnlyException('View(id={0}) is read only. Cannot be modified'.format(self.view.id()))
 
-        respond = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
+        respond, commands = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
         self.logger.debug('starting view modifications:\n<before.view>%s</before.view>', all_text_view(self.view))
         edit = self.view.begin_edit()
         try:
-            for sublime_command in self.dmp.sublime_patch_commands:
+            for sublime_command in commands:
                 self.process_sublime_command(edit, sublime_command)
             return respond
         finally:
@@ -135,11 +136,22 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             self.logger.debug('view modifications are ended:\n<after.view>%s</after.view>', all_text_view(self.view))
 
     def start_recovery(self, patch_objects, timestamp):
-        super(SublimeAwareAlgorithm, self).start_recovery(patch_objects, timestamp)
+        before_everything = misc.all_text_view(self.view)
+        commands, rollback_commands = super(SublimeAwareAlgorithm, self).start_recovery(patch_objects, timestamp)
+        # currentText = d1+d3
+        assert before_everything == misc.all_text_view(self.view)  # d3^ is None actually
         edit = self.view.begin_edit()
-        for command in self.dmp.sublime_patch_commands:
-            self.process_sublime_command(edit, command)
-        self.view.end_edit(edit)
+        try:
+            import spdb
+            spdb.start()
+            for cmd in rollback_commands:
+                self.process_sublime_command(edit, cmd)
+            for command in commands:
+                self.process_sublime_command(edit, command)
+        finally:
+            self.view.end_edit(edit)
+        self.local_onTextChanged(misc.all_text_view(self.view))
+        return []
 
     def process_sublime_command(self, edit, command):
         """

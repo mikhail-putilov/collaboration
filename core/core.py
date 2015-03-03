@@ -55,10 +55,6 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         self.currentText = text
 
     def after_recovery(self, nextText):
-        if self.clientProtocol is None:
-            self.logger.debug('client protocol is None')
-            return ApplyPatchCommand.no_work_is_done_response
-
         patches = self.dmp.patch_make(self.currentText, nextText)
         if not patches:
             return ApplyPatchCommand.no_work_is_done_response
@@ -86,6 +82,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         :rtype : defer.Deferred с результатом команды ApplyPatchCommand
         :param nextText: str текст, который является более новой версией текущего текста self.currentText
         """
+        # add if recovery running then none
         if self.clientProtocol is None:
             self.logger.debug('client protocol is None')
             return ApplyPatchCommand.no_work_is_done_response
@@ -130,18 +127,18 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         # serialize if needed and try to patch
         patch_objects = self.dmp.patch_fromText(patch) if isinstance(patch, basestring) else patch
 
-        patchedText, result = self.dmp.patch_apply(patch_objects, self.currentText)
+        patchedText, result, commands = self.dmp.patch_apply(patch_objects, self.currentText)
         if False in result:
             # if failed then recovery
-            self.start_recovery(patch_objects, timestamp)
-            return {'succeed': True}
+            commands = self.start_recovery(patch_objects, timestamp)
+            return {'succeed': True}, commands
 
         before_text = self.currentText
         self._prepare_and_commit_on_remote_apply(patch_objects, patchedText, timestamp)
         self.currentText = patchedText
         self.log_model_text(before_text)
 
-        return {'succeed': True}
+        return {'succeed': True}, commands
 
     @GetTextCommand.responder
     def remote_getText(self):
@@ -167,10 +164,9 @@ class DiffMatchPatchAlgorithm(CommandLocator):
                           self.currentText)
 
     def start_recovery(self, patch_objects, timestamp):
-        # before_text = self.currentText
         self.log_failed_apply_patch('\n'.join([str(patch) for patch in patch_objects]))
-        self.time_machine.start_recovery(patch_objects, timestamp)
-        # self.log_model_text(before_text)
+        commands, rollback_commands = self.time_machine.start_recovery(patch_objects, timestamp)
+        return commands, rollback_commands
 
 
 class NetworkApplicationConfig(object):

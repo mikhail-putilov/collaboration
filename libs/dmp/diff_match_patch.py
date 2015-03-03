@@ -1658,7 +1658,7 @@ class diff_match_patch:
                 index1 += len(data)
     # Strip the padding off.
     text = text[len(nullPadding):-len(nullPadding)]
-    return (text, results)
+    return (text, results, self.sublime_patch_commands)
 
   def patch_addPadding(self, patches):
     """Add some padding on text start and end so that edges can match
