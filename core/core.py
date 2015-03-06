@@ -165,8 +165,8 @@ class DiffMatchPatchAlgorithm(CommandLocator):
 
     def start_recovery(self, patch_objects, timestamp):
         self.log_failed_apply_patch('\n'.join([str(patch) for patch in patch_objects]))
-        commands, rollback_commands = self.time_machine.start_recovery(patch_objects, timestamp)
-        return commands, rollback_commands
+        ret = self.time_machine.start_recovery(patch_objects, timestamp)
+        return ret
 
 
 class NetworkApplicationConfig(object):

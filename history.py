@@ -98,6 +98,7 @@ class TimeMachine(object):
                 'Check consistency of the rollback_history. '
                 'Cannot rollback history. <patch>{0}</patch>'.format(serialized))
         self.logger.debug('rolled back: <patch>%s</patch>', serialized)
+        self.logger.debug('rolled back commands: %s', commands)
         self.model_text = patchedText
         return commands
 
@@ -107,30 +108,32 @@ class TimeMachine(object):
         Процедура RECOVERY.
         :param patch_objects: list [libs.dmp.diff_match_patch.patch_obj] Список патчей
         :param timestamp: временная метка
+        :return tuple of ([rollforward_command], [rollback_command]) which can be applied to sublime's view
         """
         assert self.owner.name != 'Coordinator'
         self.logger.info('starting recovery...')
         text_before = self.owner.currentText
         # to be recovered text:
         self.model_text = self.owner.currentText
-        good_guy = None
         pop_stack = []
-        rollback_commands_hist = []
+        rollback_commands = []
+        d1d3 = None
         while True:  # todo: what if there is no pop and match?
             # pop one commit, roll it back and try patch
             to_be_rolled_back, _ = self._pop_one_commit(pop_stack)
-            rollback_commands = self._rollback(to_be_rolled_back.patch)
-            rollback_commands_hist.append(rollback_commands)
+            rollback_command = self._rollback(to_be_rolled_back.patch)
+            rollback_commands.extend(rollback_command)
             # try patch
-            is_perfect_match = self._try_patch(patch_objects)
-            if is_perfect_match:
-                self.owner.currentText = self.model_text  # currentText = d1+d3
+            perfectly_patched_text = self._try_patch(patch_objects)
+            if perfectly_patched_text is not None:
+                self.model_text = perfectly_patched_text
+                d1d3 = self.model_text  # currentText = d1+d3
                 self._rollforward(pop_stack)
                 self.logger.info('recovery has stopped. Everything seems okay now. Lets try again')
                 break
-        patches = self.strict_dmp.patch_make(self.owner.currentText, self.model_text)
-        patched_text, result, sublime_patch_commands = self.strict_dmp.patch_apply(patches, text_before)
-        return sublime_patch_commands, rollback_commands_hist  # d1 -> d1+d3(+)d2, d1+d2 -> d1
+        patches = self.strict_dmp.patch_make(d1d3, self.model_text)
+        patched_text, result, rollforward_commands = self.strict_dmp.patch_apply(patches, d1d3)
+        return rollforward_commands, rollback_commands, d1d3  # d1 -> d1+d3(+)d2, d1+d2 -> d1
 
     def _try_patch(self, patch_objects):
         """
@@ -140,13 +143,12 @@ class TimeMachine(object):
         """
         patchedText, result, commands = self.strict_dmp.patch_apply(patch_objects, self.model_text)
         if False in result:
-            return False
+            return None
         else:
             # everything all right rolled back and patch is perfect match this version
-            self.model_text = patchedText
             self.logger.debug('conflicts are fixed. The following patch\'s applied: <patch>%s</patch>',
                               ''.join([str(patch) for patch in patch_objects]))
-            return True
+            return patchedText
 
     def _rollforward(self, pop_stack):
         for _, forward in reversed(pop_stack):
