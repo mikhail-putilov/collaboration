@@ -38,23 +38,17 @@ class ClientConnectionStringIsNotInitializedError(Exception):
     pass
 
 
-# noinspection PyClassHasNoInit
-class RunServerCommand(sublime_plugin.TextCommand):
-    # noinspection PyUnusedLocal
-    def run(self, edit):
-        """
-        Начальная инициализация серверной части. Включая таймер.
-        """
-        from main import SublimeAwareApplication
+def run_server(view):
+    from main import SublimeAwareApplication
 
-        app = SublimeAwareApplication(reactor, self.view, name='Application{0}'.format(self.view.id()))
-        logger.debug('%s is created', app.name)
+    app = SublimeAwareApplication(reactor, view, name='Application{0}'.format(view.id()))
+    logger.debug('%s is created', app.name)
 
-        def _cb(client_connection_string):
-            registry[self.view.id()] = RegistryEntry(app, client_connection_string)
-            logger.debug('client_connection_string=%s', client_connection_string)
+    def _cb(client_connection_string):
+        registry[view.id()] = RegistryEntry(app, client_connection_string)
+        logger.debug('client_connection_string=%s', client_connection_string)
 
-        app.setUpServerFromStr('tcp:0').addCallback(_cb)
+    return app.setUpServerFromStr('tcp:0').addCallback(_cb)
 
 
 def run_client(view, connection_str):
@@ -96,9 +90,10 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.TextCommand):
         terminate_collaboration()
 
         views = sublime.active_window().views()
+        d_list = []
         for view in views:
             erase_view(view)
-            view.run_command('run_server')
+            d_list.append(run_server(view))
 
         def _cb(_):
             return connect_to_each_other(views[0], views[1])
@@ -107,7 +102,8 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.TextCommand):
             sublime.run_command('collaboration', {'listening': 'start'})
             logger.info('{0} collaboration inited {0}'.format('---*---'))
 
-        run_coordinator_server().addCallback(_cb).addCallback(_connected_cb)
+        d_list.append(run_coordinator_server())
+        defer.DeferredList(d_list).addCallback(_cb).addCallback(_connected_cb)
 
 
 def run_coordinator_server():

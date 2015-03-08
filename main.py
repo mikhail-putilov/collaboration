@@ -138,29 +138,17 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             self.logger.debug('view modifications are ended:\n<after.view>%s</after.view>', all_text_view(self.view))
 
     def start_recovery(self, patch_objects, timestamp):
-        # before_everything = misc.all_text_view(self.view)
         self.recovering = True
         rollforward_commands, rollback_commands, d1d3 = super(SublimeAwareAlgorithm, self).start_recovery(patch_objects, timestamp)
-        # self.logger.debug("view: %s", misc.all_text_view(self.view))
-        # self.logger.debug("model: %s", self.currentText)
-        # self.logger.debug("rollback: %s", rollback_commands)
-        # self.logger.debug("rollforward: %s", rollforward_commands)
-        # assert before_everything == misc.all_text_view(self.view)  # d3^ is None actually
-        # self.logger.debug('before view changes current model text=%s', self.currentText)
-        # self.logger.debug('before view="%s"', misc.all_text_view(self.view))
         edit = self.view.begin_edit()
         try:
-            # import spdb
-            # spdb.start()
             for cmd in rollback_commands:
                 self.process_sublime_command(edit, cmd)
-            # self.logger.debug('rolledback view="%s"', misc.all_text_view(self.view))
             for command in rollforward_commands:
                 self.process_sublime_command(edit, command)
         finally:
             self.view.end_edit(edit)
         self.logger.debug('after view="%s"', misc.all_text_view(self.view))
-        # self.logger.debug('after view changes current model text=%s', d1d3)
         self.currentText = d1d3
         self.local_onTextChanged(misc.all_text_view(self.view))
         self.recovering = False
