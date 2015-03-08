@@ -1,7 +1,11 @@
 [
   {
-    "caption": "QW: Connect two windows",
-    "command": "connect_two_windows"
+    "caption": "Accept connections",
+    "command": "accept_connections"
+  },
+  {
+    "caption": "Connect to",
+    "command": "connect_to"
   },
   {
     "caption": "QR: Replay",

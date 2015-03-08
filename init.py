@@ -24,12 +24,6 @@ registry = {}
 RegistryEntry = namedtuple('RegistryEntry', ['application', 'connection_string'])
 
 
-def log_any_failure_and_errmsg_eb(failure):
-    failure.trap(Exception)
-    sublime.error_message(failure.getErrorMessage() if failure else 'No failure message is found')
-    terminate_collaboration()
-
-
 class ViewIsNotInitializedError(Exception):
     pass
 
@@ -87,11 +81,10 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.TextCommand):
     def run(self, edit):
         self.pre_conditions_check()
 
-        terminate_collaboration()
-
         views = sublime.active_window().views()
         d_list = []
         for view in views:
+            terminate_collaboration(view.id())
             erase_view(view)
             d_list.append(run_server(view))
 
@@ -99,11 +92,57 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.TextCommand):
             return connect_to_each_other(views[0], views[1])
 
         def _connected_cb(_):
-            sublime.run_command('collaboration', {'listening': 'start'})
+            sublime.run_command('collaboration', {'listening': 'start', 'view_id': self.view.id()})
             logger.info('{0} collaboration inited {0}'.format('---*---'))
 
         d_list.append(run_coordinator_server())
         defer.DeferredList(d_list).addCallback(_cb).addCallback(_connected_cb)
+
+
+class AcceptConnections(sublime_plugin.WindowCommand):
+    """
+    Слушать первичные подключения
+    """
+
+    def run(self):
+        view = self.window.active_view()
+        terminate_collaboration(view.id())
+        erase_view(view)
+
+        d_list = [run_server(view), run_coordinator_server()]
+
+        def _servers_up(_):
+            run_client(view, registry['coordinator'].connection_string)
+            logger.info(registry['coordinator'].connection_string)
+            sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()})
+
+        defer.DeferredList(d_list).addCallback(_servers_up)
+
+
+class ConnectTo(sublime_plugin.WindowCommand):
+    """
+    Подключиться к сессии
+    """
+
+    def run(self):
+        self.window.show_input_panel('coordinator server connection string:', '',
+                                                 self.on_get_connection_str, self.on_change, self.on_cancel)
+
+    def on_cancel(self):
+        pass
+
+    def on_change(self, input):
+        pass
+
+    def on_get_connection_str(self, conn_str):
+        # registry['coordinator'] = RegistryEntry(application=None, connection_string=conn_str)
+        view = self.window.active_view()
+        try:
+            d = run_server(view).addCallback(lambda _: run_client(view, conn_str.strip()))
+            d.addCallback(lambda _: sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()}))
+        except BaseException as e:
+            logger.error("Couldn't connect to %s. An error occurred: %s", conn_str, e.message)
+            # del registry['coordinator']
 
 
 def run_coordinator_server():
@@ -134,23 +173,30 @@ class ViewsDivergeException(Exception):
 
 class Collaboration(sublime_plugin.ApplicationCommand):
     def __init__(self):
-        from twisted.internet import task
+        self.view_id2task = {}
 
-        self.run_every_second_task = task.LoopingCall(main.run_every_second)
+    def run(self, listening=None, view_id=None):
+        if view_id is None:
+            raise TypeError('"view_id" must be not None')
+        _task = None
+        if view_id not in self.view_id2task:
+            from twisted.internet import task
+            _task = task.LoopingCall(main.run_every_second(view_id))
+        else:
+            _task = self.view_id2task[view_id]
 
-    def run(self, listening=None):
         if listening == 'start':
-            if not self.run_every_second_task.running:
-                self.run_every_second_task.start(1.0)
+            if not _task.running:
+                _task.start(1.0)
         elif listening == 'stop':
-            if self.run_every_second_task.running:
-                self.run_every_second_task.stop()
+            if _task.running:
+                _task.stop()
         else:
             raise TypeError('"listening" argument legal values are "start" or "stop".')
 
 
-def terminate_collaboration():
+def terminate_collaboration(view_id):
     assert Collaboration
-    sublime.run_command('collaboration', {'listening': 'stop'})
+    sublime.run_command('collaboration', {'listening': 'stop', 'view_id': view_id})
     global registry
     registry = {}

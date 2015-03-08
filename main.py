@@ -3,7 +3,6 @@
 Модуль отвечающий за основную функциональность приложения. Является sublime специфичной.
 Является логической оберткой над core модулем.
 """
-import mutex
 from history import TimeMachine
 import init
 # noinspection PyUnresolvedReferences
@@ -37,67 +36,6 @@ class ViewIsReadOnlyException(Exception):
     pass
 
 
-class SublimeAwareTimeMachine(TimeMachine):
-    view = None
-    ":type view: sublime.View"
-
-    def __init__(self, history_line, owner):
-        """
-
-        :param history_line: HistoryLine
-        :param owner: DiffMatchPatchAlgorithm
-        """
-        super(SublimeAwareTimeMachine, self).__init__(history_line, owner)
-        self.logger = ApplicationSpecificAdapter(logger, {'name': self.owner.name})
-
-    def process_sublime_command(self, edit, command):
-        """
-        Внести изменения в view
-        :param edit: sublime.Edit
-        :param command: команды, приготовленные dmp во время патчинга
-        :raise NotThatTypeOfCommandError: неверный тип команды
-        """
-        null_padding_len = self.strict_dmp.sublime_null_padding_len
-        assert null_padding_len >= 0
-
-        command_type = command[0]
-        sublime_start = command[1]
-        sublime_stop = command[2]
-
-        if command_type == 'insert':
-            text = command[3]
-            real_left_padding = 0
-            for char in text[:len(text) / 2]:
-                if char in u'\x01\x02\x03\x04':
-                    real_left_padding += 1
-
-            real_right_padding = 0
-            for char in text[len(text) / 2:]:
-                # todo: review, what if this characters would be inserted in original text?
-                if char in u'\x01\x02\x03\x04':
-                    real_right_padding += 1
-
-            # отрезаем u'\x01\x02\x03\x04' из text
-            insertion_text = text[real_left_padding:-real_right_padding] \
-                if real_right_padding != 0 else text[real_left_padding:]
-            a = sublime_start - null_padding_len + real_left_padding
-            b = sublime_stop - null_padding_len - real_right_padding
-            region = sublime.Region(a, b)
-
-            self.logger.debug(
-                'replace(%d,%d), "%s"--->"%s"', region.a, region.b, self.view.substr(region), insertion_text)
-            self.view.replace(edit, region, insertion_text)
-
-        elif command_type == 'erase':
-            assert len(command) < 4
-            region = sublime.Region(sublime_start, sublime_stop)
-            self.logger.debug('erase(%d,%d), "%s"--->""', region.a, region.b, self.view.substr(region))
-            self.view.erase(edit, region)
-
-        else:
-            raise NotThatTypeOfCommandError()
-
-
 class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
     def __init__(self, history_line, view, ownerApplication, initialText='', clientProtocol=None, name=''):
         """
@@ -117,8 +55,7 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         self.ownerApplication = ownerApplication
         ":type ownerApplication: SublimeAwareApplication"
         self.logger = ApplicationSpecificAdapter(logger, {'name': self.name})
-        self.time_machine = SublimeAwareTimeMachine(history_line, self)
-        self.time_machine.view = view
+        self.time_machine = TimeMachine(history_line, self)
         self.recovering = False
 
     @ApplyPatchCommand.responder
@@ -148,7 +85,6 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
                 self.process_sublime_command(edit, command)
         finally:
             self.view.end_edit(edit)
-        self.logger.debug('after view="%s"', misc.all_text_view(self.view))
         self.currentText = d1d3
         self.local_onTextChanged(misc.all_text_view(self.view))
         self.recovering = False
@@ -206,14 +142,16 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             raise NotThatTypeOfCommandError()
 
 
-def run_every_second():
+def run_every_second(view_id):
     """Функция, которая запускает синхронизацию между view"""
-    for view_id in init.registry:
+    def closure():
         if view_id == 'coordinator':
-            continue
+            return
         app = init.registry[view_id].application
         if app.algorithm.recovering:
-            break
+            logger.warning('%s is recovering and cannot be scanned for new changes. This must not happen!', app.name)
+            return
         allTextRegion = sublime.Region(0, app.view.size())
         allText = app.view.substr(allTextRegion)
         app.algorithm.local_onTextChanged(allText)
+    return closure
