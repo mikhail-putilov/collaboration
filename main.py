@@ -151,7 +151,5 @@ def run_every_second(view_id):
         if app.algorithm.recovering:
             logger.warning('%s is recovering and cannot be scanned for new changes. This must not happen!', app.name)
             return
-        allTextRegion = sublime.Region(0, app.view.size())
-        allText = app.view.substr(allTextRegion)
-        app.algorithm.local_onTextChanged(allText)
+        app.algorithm.local_onTextChanged(misc.all_text_view(app.view))
     return closure
