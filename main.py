@@ -1,6 +1,6 @@
 # coding=utf-8
 """
-Модуль отвечающий за основную функциональность приложения. Является sublime специфичной.
+Модуль отвечающий за основную sublime специфичную функциональность приложения (!).
 Является логической оберткой над core модулем.
 """
 from history import TimeMachine
@@ -21,6 +21,12 @@ from core.core import *
 
 class SublimeAwareApplication(Application):
     def __init__(self, _reactor, view, name=''):
+        """
+        Application который знает о существовании view.
+        :param _reactor: основной реактор
+        :param view: соответствующее представление
+        :param name: имя (желательно уникальное в рамках одного пира)
+        """
         super(SublimeAwareApplication, self).__init__(_reactor, name)
         self.view = view
         ':type view: sublime.View'
@@ -40,11 +46,11 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
     def __init__(self, history_line, view, ownerApplication, initialText='', clientProtocol=None, name=''):
         """
         Алгоритм, который знает о том, что работает с sublime.View
-        :param history_line: history.HistoryLine
-        :param view: sublime.View
-        :param initialText: str
-        :param clientProtocol:
-        :param name: str
+        :param history_line: history.HistoryLine История коммитов. От экземпляра ownerApplication
+        :param view: sublime.View соответствующее представление
+        :param initialText: str начальный текст
+        :param clientProtocol: клиентский протокол, отвечающий за соединение с координатором
+        :param name: str имя ownerApplication
         """
         super(SublimeAwareAlgorithm, self).__init__(history_line, initialText=initialText,
                                                     clientProtocol=clientProtocol,
@@ -60,10 +66,18 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
 
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch, timestamp):
+        """
+        Применить патч в любом случае. Если патч подходит не идеально, то выполняется вначале RECOVERY.
+        :param patch: force-патч от координатора
+        :param timestamp: время патча
+        :return: :raise ViewIsReadOnlyException: патч не может быть применен из-за read_only флага. Ситуация корректно
+        не обрабатывается
+        """
         if self.view.is_read_only():
             raise ViewIsReadOnlyException('View(id={0}) is read only. Cannot be modified'.format(self.view.id()))
-
+        before = misc.all_text_view(self.view)
         respond, commands = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
+        assert before == misc.all_text_view(self.view)
         self.logger.debug('starting view modifications:\n<before.view>%s</before.view>', all_text_view(self.view))
         edit = self.view.begin_edit()
         try:
@@ -75,20 +89,19 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             self.logger.debug('view modifications are ended:\n<after.view>%s</after.view>', all_text_view(self.view))
 
     def start_recovery(self, patch_objects, timestamp):
+        """
+        RECOVERY процедура. Откатывает патчи, пытается применить патч patch_objects (так, чтобы он применился идеально)
+        :param patch_objects: конфликтный патч от координатора
+        :param timestamp: время патча
+        :return: команды для sublime, которые изменяют view согласно измененной модели
+        """
         self.recovering = True
         rollforward_commands, rollback_commands, d1d3 = super(SublimeAwareAlgorithm, self).start_recovery(patch_objects, timestamp)
-        edit = self.view.begin_edit()
-        try:
-            for cmd in rollback_commands:
-                self.process_sublime_command(edit, cmd)
-            for command in rollforward_commands:
-                self.process_sublime_command(edit, command)
-        finally:
-            self.view.end_edit(edit)
         self.currentText = d1d3
         self.local_onTextChanged(misc.all_text_view(self.view))
         self.recovering = False
-        return []
+        rollback_commands.extend(rollforward_commands)
+        return rollback_commands
 
     def process_sublime_command(self, edit, command):
         """
@@ -143,7 +156,10 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
 
 
 def run_every_second(view_id):
-    """Функция, которая запускает синхронизацию между view"""
+    """
+    Функция, которая сканирует и начинает синхронизацию каждую секунду
+    :return: функция, которая сканирует конкретную view
+    """
     def closure():
         if view_id == 'coordinator':
             return
