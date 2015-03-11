@@ -3,6 +3,7 @@
 Модуль отвечающий за основную sublime специфичную функциональность приложения (!).
 Является логической оберткой над core модулем.
 """
+from itertools import takewhile, izip
 from history import TimeMachine
 import init
 # noinspection PyUnresolvedReferences
@@ -135,15 +136,25 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
                 if real_right_padding != 0 else text[real_left_padding:]
             a = sublime_start - null_padding_len + real_left_padding
             b = sublime_stop - null_padding_len - real_right_padding
-            region = sublime.Region(a, b)
+
+            def find_common_prefix_and_suffix(aa,bb):
+                def common_prefix_f(b1, b2):
+                    return [i[0] for i in takewhile(lambda x: len(set(x)) == 1, izip(b1, b2))]
+                common_prefix = common_prefix_f(aa, bb)
+                common_suffix = common_prefix_f(reversed(aa), reversed(bb))
+                return common_prefix, common_suffix
+            was = self.view.substr(sublime.Region(a, b))
+            common_prefix, common_suffix = find_common_prefix_and_suffix(was, insertion_text)
+            region = sublime.Region(a + len(common_prefix), b - len(common_suffix))
+            trimed_insertion = insertion_text[len(common_prefix):-len(common_suffix)] if len(common_suffix) != 0 else insertion_text[len(common_prefix):]
             if region.a == region.b:
                 self.logger.debug(
-                    'insert(%d), "%s"--->"%s"', region.a, self.view.substr(region), insertion_text)
-                self.view.insert(edit, region.a, insertion_text)
+                    'insert(%d), "%s"--->"%s"', region.a, self.view.substr(region), trimed_insertion)
+                self.view.insert(edit, region.a, trimed_insertion)
             else:
                 self.logger.debug(
-                    'replace(%d,%d), "%s"--->"%s"', region.a, region.b, self.view.substr(region), insertion_text)
-                self.view.replace(edit, region, insertion_text)
+                    'replace(%d,%d), "%s"--->"%s"', region.a, region.b, self.view.substr(region), trimed_insertion)
+                self.view.replace(edit, region, trimed_insertion)
 
         elif command_type == 'erase':
             assert len(command) < 4
