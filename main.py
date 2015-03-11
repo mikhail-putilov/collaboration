@@ -137,16 +137,12 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             a = sublime_start - null_padding_len + real_left_padding
             b = sublime_stop - null_padding_len - real_right_padding
 
-            def find_common_prefix_and_suffix(aa,bb):
-                def common_prefix_f(b1, b2):
-                    return [i[0] for i in takewhile(lambda x: len(set(x)) == 1, izip(b1, b2))]
-                common_prefix = common_prefix_f(aa, bb)
-                common_suffix = common_prefix_f(reversed(aa), reversed(bb))
-                return common_prefix, common_suffix
+            def common_prefix_f(b1, b2):
+                return [i[0] for i in takewhile(lambda x: len(set(x)) == 1, izip(b1, b2))]
             was = self.view.substr(sublime.Region(a, b))
-            common_prefix, common_suffix = find_common_prefix_and_suffix(was, insertion_text)
-            region = sublime.Region(a + len(common_prefix), b - len(common_suffix))
-            trimed_insertion = insertion_text[len(common_prefix):-len(common_suffix)] if len(common_suffix) != 0 else insertion_text[len(common_prefix):]
+            common_prefix = common_prefix_f(was, insertion_text)
+            region = sublime.Region(a + len(common_prefix), b)
+            trimed_insertion = insertion_text[len(common_prefix):]
             if region.a == region.b:
                 self.logger.debug(
                     'insert(%d), "%s"--->"%s"', region.a, self.view.substr(region), trimed_insertion)
