@@ -31,6 +31,9 @@ class DiffMatchPatchAlgorithm(CommandLocator):
     def __init__(self, history_line, initialText='', clientProtocol=None, name=''):
         """
         Основной локатор-алгоритм, действующий только с моделью текста
+        :type name: имя владельца (application) (необходимо для логирования)
+        :type clientProtocol: клиентский протокол общения с координатором
+        :type initialText: str Начальный текст
         :type history_line: history.HistoryLine
         """
         self.name = name
@@ -53,28 +56,6 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         """
         self.logger.debug('text is currently replaced without any side-effects')
         self.currentText = text
-
-    def after_recovery(self, nextText):
-        patches = self.dmp.patch_make(self.currentText, nextText)
-        if not patches:
-            return ApplyPatchCommand.no_work_is_done_response
-        timestamp = self.time_machine.get_current_timestamp()
-        self._prepare_and_commit_on_local_changes(patches, nextText, timestamp)
-        self.currentText = nextText
-        serialized = self.dmp.patch_toText(patches)
-        if not serialized:
-            return ApplyPatchCommand.no_work_is_done_response
-        self.logger.debug('sending patch:\n<patch>\n%s</patch>', serialized)
-
-        def _eb(failure):
-            failure.trap(PatchIsNotApplicableException)
-            self.logger.warning(str(failure))
-            return {'succeed': False}
-
-        self.clientProtocol.callRemote(TryApplyPatchCommand,
-                                       patch=serialized,
-                                       timestamp=timestamp).addErrback(_eb)
-        return patches
 
     def local_onTextChanged(self, nextText):
         """
@@ -116,17 +97,16 @@ class DiffMatchPatchAlgorithm(CommandLocator):
                                         is_owner=False)
         self.history.commit_with_rollback(forward, backward)
 
-    @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch, timestamp):
-        is_patch_objects = hasattr(patch, '__getitem__') and (len(patch) == 0 or isinstance(patch[0], patch_obj))
-        assert isinstance(patch, basestring) or is_patch_objects
-        if isinstance(patch, basestring):
-            self.logger.debug('remote patch applying:\n<patch>\n%s</patch>', patch)
-        else:
-            self.logger.debug('locally force applying:\n<patch>\n%s</patch>', ''.join([str(p) for p in patch]))
-        # serialize if needed and try to patch
-        patch_objects = self.dmp.patch_fromText(patch) if isinstance(patch, basestring) else patch
-
+        """
+        Применить патч в любом случае. Если патч подходит не идеально, то выполняется вначале RECOVERY.
+        :param patch: force-патч от координатора
+        :param timestamp: время патча
+        :rtype tuple of (response dict, sublime_commands)
+        """
+        self.logger.debug('remote patch applying:\n<patch>\n%s</patch>', patch)
+        # serialize and try to patch
+        patch_objects = self.dmp.patch_fromText(patch)
         patchedText, result, commands = self.dmp.patch_apply(patch_objects, self.currentText)
         if False in result:
             # if failed then recovery
