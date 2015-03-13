@@ -121,8 +121,10 @@ class ConnectTo(sublime_plugin.WindowCommand):
     """
 
     def run(self):
-        self.window.show_input_panel('coordinator server connection string:', '',
-                                     self.on_get_connection_str, self.on_change, self.on_cancel)
+        import libs.beacon as beacon
+        print "all: %r" % beacon.find_all_servers(12000, b"collaboration-sublime-text")
+        # self.window.show_input_panel('coordinator server connection string:', '',
+        #                              self.on_get_connection_str, self.on_change, self.on_cancel)
 
     def on_cancel(self):
         pass

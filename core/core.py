@@ -11,7 +11,7 @@ from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory, ServerFactory
 
-from libs.dmp.diff_match_patch import patch_obj
+import libs.beacon as beacon
 from misc import ApplicationSpecificAdapter
 import history
 from command import *
@@ -331,8 +331,13 @@ class CoordinatorApplication(Application):
         super(CoordinatorApplication, self).__init__(reactor, name=name)
         self.server_ports = []
         self.decorated_locators = []
+        self.beacon = beacon.Beacon(12000, "collaboration-sublime-text")
+        self.beacon.daemon = True
         self.locator = CoordinatorDiffMatchPatchAlgorithm(self.history_line, clientProtocol=self.clientProtocol,
                                                           name=name)
+
+    def _start_beacon(self):
+        self.beacon.start()
 
     def _initServer(self, locator, serverConnString):
         """
@@ -340,6 +345,7 @@ class CoordinatorApplication(Application):
         :type serverConnString: str строка подключения для serverFromString
         :return : defer.Deferred
         """
+        self._start_beacon()
         self.history_line.clean()
         for decorated_locator in self.decorated_locators:
             decorated_locator.clean_incoming_connections()
@@ -354,6 +360,7 @@ class CoordinatorApplication(Application):
 
     def tearDown(self):
         assert self.clientProtocol is None, 'Coordinator is not a client for any peer'
+        del self.beacon
         d = defer.succeed(None)
         if self.server_ports:
             d = defer.DeferredList([defer.maybeDeferred(serverPort.stopListening) for serverPort in self.server_ports])
