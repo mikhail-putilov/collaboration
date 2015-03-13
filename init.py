@@ -3,8 +3,10 @@
 Модуль начальной инициализации sublime плагина. Включает в себя в основном наследников sublime_plugin.TextCommand.
 Логически является специфичной sublime оберткой над main модулем.
 """
+from twisted.internet import task, threads
 import main
 from misc import erase_view
+import misc
 
 __author__ = 'snowy'
 
@@ -122,25 +124,29 @@ class ConnectTo(sublime_plugin.WindowCommand):
 
     def run(self):
         import libs.beacon as beacon
-        print "all: %r" % beacon.find_all_servers(12000, b"collaboration-sublime-text")
-        # self.window.show_input_panel('coordinator server connection string:', '',
-        #                              self.on_get_connection_str, self.on_change, self.on_cancel)
+        l = task.LoopingCall(misc.loading)
+        l.start(0.1)
+        d = threads.deferToThread(beacon.find_all_servers, 12000, b"collaboration-sublime-text")
 
-    def on_cancel(self):
-        pass
-
-    def on_change(self, input):
-        pass
+        def _found(res_list):
+            l.stop()
+            sublime.status_message("Got all results")
+            items = [str(item) for item in res_list]
+            on_done = lambda index: self.on_get_connection_str(items[index]) if index != -1 else None
+            self.window.show_quick_panel(items, on_done)
+        d.addCallback(_found)
 
     def on_get_connection_str(self, conn_str):
-        # registry['coordinator'] = RegistryEntry(application=None, connection_string=conn_str)
+        if 'coordinator' not in registry:
+            registry['coordinator'] = RegistryEntry(application=None, connection_string=conn_str)
         view = self.window.active_view()
         try:
-            d = run_server(view).addCallback(lambda _: run_client(view, conn_str.strip()))
+            d = run_server(view).addCallback(lambda _: run_client(view, "tcp:host={0}:port=13256".format(conn_str)))
             d.addCallback(lambda _: sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()}))
         except BaseException as e:
             logger.error("Couldn't connect to %s. An error occurred: %s", conn_str, e.message)
-            # del registry['coordinator']
+            if 'coordinator' in registry:
+                del registry['coordinator']
 
 
 def run_coordinator_server():
@@ -152,7 +158,7 @@ def run_coordinator_server():
     def _cb(client_connection_string):
         registry['coordinator'] = RegistryEntry(app, client_connection_string)
 
-    return app.setUpServerFromStr('tcp:0').addCallback(_cb)
+    return app.setUpServerFromStr('tcp:13256').addCallback(_cb)
 
 
 def connect_to_each_other(view1, view2):

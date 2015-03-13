@@ -19,3 +19,27 @@ def erase_view(view):
 
 def all_text_view(view):
     return view.substr(sublime.Region(0, view.size()))
+
+loading_anim = [
+    "[=      ]",
+    "[ =     ]",
+    "[  =    ]",
+    "[   =   ]",
+    "[    =  ]",
+    "[     = ]",
+    "[      =]",
+    "[     = ]",
+    "[    =  ]",
+    "[   =   ]",
+    "[  =    ]",
+    "[ =     ]",
+    "[=      ]"
+]
+loaded = 0
+
+
+def loading():
+    global loaded
+    loaded += 1
+    loaded %= len(loading_anim)
+    sublime.status_message(loading_anim[loaded])
