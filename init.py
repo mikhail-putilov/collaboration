@@ -124,19 +124,23 @@ class ListOfLocalCoordinators(sublime_plugin.WindowCommand):
 
     def run(self):
         import libs.beacon as beacon
+
         l = task.LoopingCall(misc.loading)
         l.start(0.1)
         d = threads.deferToThread(beacon.find_all_servers, 12000, b"collaboration-sublime-text")
 
         def _found(res_list):
             l.stop()
-            sublime.status_message("Got all results")
+            sublime.status_message("A list of available coordinators is retrieved" if len(
+                res_list) > 0 else "No coordinators answer your request. Try to connect with your bare hands.")
             items = [str(item) for item in res_list]
 
             def on_done(index):
                 if index != -1:
                     on_get_connection_str(self.window, "tcp:host={0}:port=13256".format(items[index]))
+
             self.window.show_quick_panel(items, on_done)
+
         d.addCallback(_found)
 
 
@@ -144,6 +148,7 @@ class ConnectToCoordinator(sublime_plugin.WindowCommand):
     """
     Подключиться к сессии используя точный connection string
     """
+
     def run(self):
         on_done = lambda conn_str: on_get_connection_str(self.window, conn_str)
         self.window.show_input_panel("connection string:", "tcp:host={}:port=13256", on_done, None, None)
