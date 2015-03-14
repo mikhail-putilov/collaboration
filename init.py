@@ -11,6 +11,7 @@ import misc
 __author__ = 'snowy'
 
 import logging
+# noinspection PyUnresolvedReferences
 import sublime
 import sublime_plugin
 from collections import namedtuple
@@ -93,7 +94,7 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.WindowCommand):
             sublime.run_command('collaboration', {'listening': 'start', 'view_id': views[1].id()})
             logger.info('{0} collaboration inited {0}'.format('---*---'))
 
-        d_list.append(run_coordinator_server())
+        d_list.append(run_coordinator_server(''))
         defer.DeferredList(d_list).addCallback(_cb).addCallback(_connected_cb)
 
 
@@ -105,9 +106,8 @@ class AcceptConnections(sublime_plugin.WindowCommand):
     def run(self):
         view = self.window.active_view()
         terminate_collaboration(view.id())
-        erase_view(view)
-
-        d_list = [run_server(view), run_coordinator_server()]
+        initial_text = misc.all_text_view(view)
+        d_list = [run_server(view), run_coordinator_server(initial_text)]
 
         def _servers_up(_):
             run_client(view, registry['coordinator'].connection_string)
@@ -125,7 +125,7 @@ class ListOfLocalCoordinators(sublime_plugin.WindowCommand):
     def run(self):
         import libs.beacon as beacon
 
-        l = task.LoopingCall(misc.loading)
+        l = task.LoopingCall(lambda: misc.loading("Looking for coordinators {0}"))
         l.start(0.1)
         d = threads.deferToThread(beacon.find_all_servers, 12000, b"collaboration-sublime-text")
 
@@ -167,10 +167,10 @@ def on_get_connection_str(window, conn_str):
             del registry['coordinator']
 
 
-def run_coordinator_server():
+def run_coordinator_server(initial_text):
     from core.core import CoordinatorApplication
 
-    app = CoordinatorApplication(reactor)
+    app = CoordinatorApplication(reactor, initial_text=initial_text)
     logger.debug('%s is created', app.name)
 
     def _cb(client_connection_string):
@@ -198,7 +198,6 @@ class Collaboration(sublime_plugin.ApplicationCommand):
         self.view_id2task = {}
 
     def _get_task(self, view_id):
-        _task = None
         if view_id not in self.view_id2task:
             from twisted.internet import task
 

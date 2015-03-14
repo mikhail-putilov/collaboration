@@ -43,9 +43,16 @@ class SublimeAwareApplication(Application):
             sublime.error_message(
                 "Couldn't retrieve initial text from a coordinator due to unknown remote error. Aborting.")
             init.terminate_collaboration(self.view.id())
-
         d.addErrback(_eb)
         return d
+
+    def _got_first_text_cb(self, response):
+        _ret = super(SublimeAwareApplication, self)._got_first_text_cb(response)
+        edit = self.view.begin_edit()
+        self.view.erase(edit, sublime.Region(0, self.view.size()))
+        self.view.insert(edit, 0, response['text'])
+        self.view.end_edit(edit)
+        return _ret
 
 
 class NotThatTypeOfCommandError(Exception):
