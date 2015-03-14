@@ -117,9 +117,9 @@ class AcceptConnections(sublime_plugin.WindowCommand):
         defer.DeferredList(d_list).addCallback(_servers_up)
 
 
-class ConnectTo(sublime_plugin.WindowCommand):
+class ListOfLocalCoordinators(sublime_plugin.WindowCommand):
     """
-    Подключиться к сессии
+    Подключиться к сессии используя список локальных координаторов
     """
 
     def run(self):
@@ -132,21 +132,34 @@ class ConnectTo(sublime_plugin.WindowCommand):
             l.stop()
             sublime.status_message("Got all results")
             items = [str(item) for item in res_list]
-            on_done = lambda index: self.on_get_connection_str(items[index]) if index != -1 else None
+
+            def on_done(index):
+                if index != -1:
+                    on_get_connection_str(self.window, "tcp:host={0}:port=13256".format(items[index]))
             self.window.show_quick_panel(items, on_done)
         d.addCallback(_found)
 
-    def on_get_connection_str(self, conn_str):
-        if 'coordinator' not in registry:
-            registry['coordinator'] = RegistryEntry(application=None, connection_string=conn_str)
-        view = self.window.active_view()
-        try:
-            d = run_server(view).addCallback(lambda _: run_client(view, "tcp:host={0}:port=13256".format(conn_str)))
-            d.addCallback(lambda _: sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()}))
-        except BaseException as e:
-            logger.error("Couldn't connect to %s. An error occurred: %s", conn_str, e.message)
-            if 'coordinator' in registry:
-                del registry['coordinator']
+
+class ConnectToCoordinator(sublime_plugin.WindowCommand):
+    """
+    Подключиться к сессии используя точный connection string
+    """
+    def run(self):
+        on_done = lambda conn_str: on_get_connection_str(self.window, conn_str)
+        self.window.show_input_panel("connection string:", "tcp:host={}:port=13256", on_done, None, None)
+
+
+def on_get_connection_str(window, conn_str):
+    if 'coordinator' not in registry:
+        registry['coordinator'] = RegistryEntry(application=None, connection_string=conn_str)
+    view = window.active_view()
+    try:
+        d = run_server(view).addCallback(lambda _: run_client(view, conn_str))
+        d.addCallback(lambda _: sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()}))
+    except BaseException as e:
+        logger.error("Couldn't connect to %s. An error occurred: %s", conn_str, e.message)
+        if 'coordinator' in registry:
+            del registry['coordinator']
 
 
 def run_coordinator_server():

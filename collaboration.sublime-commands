@@ -1,11 +1,15 @@
 [
   {
-    "caption": "Accept connections",
+    "caption": "AcceptConnections",
     "command": "accept_connections"
   },
   {
-    "caption": "Connect to",
-    "command": "connect_to"
+    "caption": "ListOfLocalCoordinators",
+    "command": "list_of_local_coordinators"
+  },
+  {
+    "caption": "ConnectToCoordinator",
+    "command": "connect_to_coordinator"
   },
   {
     "caption": "QR: Replay",

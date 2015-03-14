@@ -79,14 +79,16 @@ class DiffMatchPatchAlgorithm(CommandLocator):
             return ApplyPatchCommand.no_work_is_done_response
         self.logger.debug('sending patch:\n<patch>\n%s</patch>', serialized)
 
-        def _eb(failure):
+        def _patch_rejected_case(failure):
             failure.trap(PatchIsNotApplicableException)
             self.logger.warning(str(failure))
             return {'succeed': False}
 
-        return self.clientProtocol.callRemote(TryApplyPatchCommand,
-                                              patch=serialized,
-                                              timestamp=timestamp).addErrback(_eb)
+        return self.clientProtocol.callRemote(TryApplyPatchCommand, patch=serialized, timestamp=timestamp) \
+            .addErrback(_patch_rejected_case).addErrback(self._unknown_coordinators_error_case)
+
+    def _unknown_coordinators_error_case(self, failure):
+        self.logger.error("Got unknown coordinators error:{0}", str(failure))
 
     def _prepare_and_commit_on_remote_apply(self, patch_objects, patchedText, timestamp):
         forward = history.HistoryEntry(patch=patch_objects,

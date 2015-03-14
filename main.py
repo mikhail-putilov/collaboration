@@ -4,6 +4,7 @@
 Является логической оберткой над core модулем.
 """
 from itertools import takewhile, izip
+from twisted.protocols.amp import UnknownRemoteError
 from history import TimeMachine
 import init
 # noinspection PyUnresolvedReferences
@@ -88,6 +89,11 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         finally:
             self.view.end_edit(edit)
             self.logger.debug('view modifications are ended:\n<after.view>%s</after.view>', all_text_view(self.view))
+
+    def _unknown_coordinators_error_case(self, failure):
+        failure.trap(UnknownRemoteError)
+        sublime.error_message("Something wet horribly wrong. Coordinator server had crashed. Abort connection.")
+        init.terminate_collaboration(self.view.id())
 
     def start_recovery(self, patch_objects, timestamp):
         """
