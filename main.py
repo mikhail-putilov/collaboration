@@ -35,6 +35,18 @@ class SublimeAwareApplication(Application):
         self.locator = SublimeAwareAlgorithm(self.history_line, self.view, self, clientProtocol=self.clientProtocol,
                                              name=name)
 
+    def init_first_text(self, client_proto):
+        d = super(SublimeAwareApplication, self).init_first_text(client_proto)
+
+        def _eb(failure):
+            failure.trap(UnknownRemoteError)
+            sublime.error_message(
+                "Couldn't retrieve initial text from a coordinator due to unknown remote error. Aborting.")
+            init.terminate_collaboration(self.view.id())
+
+        d.addErrback(_eb)
+        return d
+
 
 class NotThatTypeOfCommandError(Exception):
     pass
@@ -103,7 +115,8 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         :return: команды для sublime, которые изменяют view согласно измененной модели
         """
         self.recovering = True
-        rollforward_commands, rollback_commands, d1d3 = super(SublimeAwareAlgorithm, self).start_recovery(patch_objects, timestamp)
+        rollforward_commands, rollback_commands, d1d3 = super(SublimeAwareAlgorithm, self).start_recovery(patch_objects,
+                                                                                                          timestamp)
         self.currentText = d1d3
         self.local_onTextChanged(misc.all_text_view(self.view))
         self.recovering = False
@@ -145,6 +158,7 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
 
             def common_prefix_f(b1, b2):
                 return [i[0] for i in takewhile(lambda x: len(set(x)) == 1, izip(b1, b2))]
+
             was = self.view.substr(sublime.Region(a, b))
             common_prefix = common_prefix_f(was, insertion_text)
             region = sublime.Region(a + len(common_prefix), b)
@@ -173,6 +187,7 @@ def run_every_second(view_id):
     Функция, которая сканирует и начинает синхронизацию каждую секунду
     :return: функция, которая сканирует конкретную view
     """
+
     def closure():
         if view_id == 'coordinator':
             return
@@ -181,4 +196,5 @@ def run_every_second(view_id):
             logger.warning('%s is recovering and cannot be scanned for new changes. This must not happen!', app.name)
             return
         app.algorithm.local_onTextChanged(misc.all_text_view(app.view))
+
     return closure

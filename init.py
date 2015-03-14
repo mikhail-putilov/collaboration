@@ -51,9 +51,9 @@ def run_client(view, connection_str):
     assert view.id() in registry, "view's id must be in registry"
     app = registry[view.id()].application
 
-    def _cb(_):
+    # noinspection PyUnusedLocal
+    def _cb(client_proto):
         logger.debug('%s has connected to %s', app.name, connection_str)
-        return _
 
     return app.connectAsClientFromStr(connection_str).addCallback(_cb)
 

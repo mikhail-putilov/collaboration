@@ -19,8 +19,12 @@ if twisted_path not in sys.path:
 
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s.%(msecs)d - %(name)s - %(levelname)s - %(message)s',
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s.%(msecs)d - %(name)s - %(levelname)s - %(message)s',
                     datefmt='%H:%M:%S')
 logger = logging.getLogger(__name__)
 logging.getLogger('main').setLevel(logging.DEBUG)
 logging.getLogger('core').setLevel(logging.DEBUG)
+from twisted.python import log
+observer = log.PythonLoggingObserver()
+observer.start()
+logger.info('Twisted observer started')

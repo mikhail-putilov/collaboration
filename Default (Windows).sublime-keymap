@@ -1,0 +1,22 @@
+[
+  {
+    "keys": ["alt+r"],
+    "command": "replay"
+  },
+  {
+    "keys": ["alt+c"],
+    "command": "connect_two_views_with_coordinator"
+  },
+  {
+    "keys": ["alt+a"],
+    "command": "accept_connections"
+  },
+  {
+    "keys": ["alt+l"],
+    "command": "list_of_local_coordinators"
+  },
+  {
+    "keys": ["alt+s"],
+    "command": "connect_to_coordinator"
+  }
+]

@@ -6,7 +6,7 @@
 __author__ = 'snowy'
 import logging
 
-from twisted.protocols.amp import CommandLocator, AMP
+from twisted.protocols.amp import CommandLocator, AMP, UnknownRemoteError
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory, ServerFactory
@@ -246,7 +246,22 @@ class Application(object):
         :param clientConnString: str
         :rtype : defer.Deferred с аргументом self.clientProtocol
         """
-        return self._initClient(clientConnString)
+        return self._initClient(clientConnString).addCallback(self.init_first_text)
+
+    def init_first_text(self, client_proto):
+        def _cb(text):
+            print "1111!!!",text
+            return text
+            # self.algorithm.local_text = text
+
+        def _eb(failure):
+            failure.trap(UnknownRemoteError)
+            logger.error("Something went wrong. Couldn't get initial text from the coordinator. Aborting connection")
+            self.tearDown()
+            return failure  # because we cannot do anything at this point
+
+        return client_proto.callRemote(GetTextCommand).addCallbacks(_cb, _eb) \
+            .addCallback(lambda ignore: client_proto)  # make sure that result value is still client_proto
 
     def setUpClientFromCfg(self, cfg):
         """
