@@ -35,24 +35,13 @@ class SublimeAwareApplication(Application):
         self.locator = SublimeAwareAlgorithm(self.history_line, self.view, self, clientProtocol=self.clientProtocol,
                                              name=name)
 
-    def init_first_text(self, client_proto):
-        d = super(SublimeAwareApplication, self).init_first_text(client_proto)
-
-        def _eb(failure):
-            failure.trap(UnknownRemoteError)
-            sublime.error_message(
-                "Couldn't retrieve initial text from a coordinator due to unknown remote error. Aborting.")
-            init.terminate_collaboration(self.view.id())
-        d.addErrback(_eb)
-        return d
-
     def _got_first_text_cb(self, response):
-        _ret = super(SublimeAwareApplication, self)._got_first_text_cb(response)
+        _response = super(SublimeAwareApplication, self)._got_first_text_cb(response)
         edit = self.view.begin_edit()
         self.view.erase(edit, sublime.Region(0, self.view.size()))
         self.view.insert(edit, 0, response['text'])
         self.view.end_edit(edit)
-        return _ret
+        return _response
 
 
 class NotThatTypeOfCommandError(Exception):

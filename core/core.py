@@ -253,13 +253,7 @@ class Application(object):
         return response
 
     def init_first_text(self, client_proto):
-        def _eb(failure):
-            failure.trap(UnknownRemoteError)
-            logger.error("Something went wrong. Couldn't get initial text from the coordinator. Aborting connection")
-            self.tearDown()
-            return failure  # because we cannot do anything at this point
-
-        return client_proto.callRemote(GetTextCommand).addCallbacks(self._got_first_text_cb, _eb) \
+        return client_proto.callRemote(GetTextCommand).addCallback(self._got_first_text_cb) \
             .addCallback(lambda ignore: client_proto)  # make sure that result value is still client_proto
 
     def setUpClientFromCfg(self, cfg):

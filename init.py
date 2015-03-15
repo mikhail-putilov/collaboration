@@ -45,18 +45,30 @@ def run_server(view):
         registry[view.id()] = RegistryEntry(app, client_connection_string)
         logger.debug('client_connection_string=%s', client_connection_string)
 
-    return app.setUpServerFromStr('tcp:0').addCallback(_cb)
+    return app.setUpServerFromStr('tcp:0').addCallback(_cb).addErrback(_run_server_or_client_eb, view.id())
+
+
+def _run_server_or_client_eb(failure, view_id):
+    if view_id in registry:
+        del registry[view_id]
+    return failure
 
 
 def run_client(view, connection_str):
+    """
+    ЗАпустить клиентскую часть и подконнектиться
+    :param view: клиентская часть соответствующей вью
+    :param connection_str: куда коннект
+    :return: defer.Deferred с результатом client_protocol
+    """
     assert view.id() in registry, "view's id must be in registry"
     app = registry[view.id()].application
 
     # noinspection PyUnusedLocal
     def _cb(client_proto):
         logger.debug('%s has connected to %s', app.name, connection_str)
-
-    return app.connectAsClientFromStr(connection_str).addCallback(_cb)
+        return client_proto
+    return app.connectAsClientFromStr(connection_str).addCallback(_cb).addErrback(_run_server_or_client_eb, view.id())
 
 
 class NumberOfWindowsIsNotSupportedError(Exception):
@@ -94,8 +106,16 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.WindowCommand):
             sublime.run_command('collaboration', {'listening': 'start', 'view_id': views[1].id()})
             logger.info('{0} collaboration inited {0}'.format('---*---'))
 
-        d_list.append(run_coordinator_server(''))
-        defer.DeferredList(d_list).addCallback(_cb).addCallback(_connected_cb)
+        def _eb(failure):
+            logger.error(failure)
+            sublime.error_message("Couldn't connect two views with coordinator. See back log for more details.")
+            global registry
+            registry = {}# registry must be empty after fail. This may be due to error not in coordinator side
+            return None
+
+        d_list.append(run_coordinator_server(initial_text=''))
+        defer.DeferredList(d_list, fireOnOneErrback=True).addCallback(_cb).addCallback(_connected_cb) \
+            .addErrback(_eb)
 
 
 class AcceptConnections(sublime_plugin.WindowCommand):
@@ -157,14 +177,17 @@ class ConnectToCoordinator(sublime_plugin.WindowCommand):
 def on_get_connection_str(window, conn_str):
     if 'coordinator' not in registry:
         registry['coordinator'] = RegistryEntry(application=None, connection_string=conn_str)
-    view = window.active_view()
-    try:
-        d = run_server(view).addCallback(lambda _: run_client(view, conn_str))
-        d.addCallback(lambda _: sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()}))
-    except BaseException as e:
-        logger.error("Couldn't connect to %s. An error occurred: %s", conn_str, e.message)
-        if 'coordinator' in registry:
+
+    def _eb(failure):
+        if 'coordinator' in registry and registry['coordinator'].connection_string == conn_str:
             del registry['coordinator']
+        logger.error("Couldn't connect to %s. An error occurred: %s", conn_str, failure)
+        return failure
+
+    view = window.active_view()
+    d = run_server(view).addCallback(lambda _: run_client(view, conn_str))
+    d.addCallback(lambda _: sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()}))
+    d.addErrback(_eb)
 
 
 def run_coordinator_server(initial_text):
@@ -227,6 +250,7 @@ class Collaboration(sublime_plugin.ApplicationCommand):
 
 
 def terminate_collaboration(view_id):
+    logger.info("Terminating collaboration for view with id=%s", view_id)
     assert Collaboration
     sublime.run_command('collaboration', {'listening': 'stop', 'view_id': view_id})
     if view_id in registry:
