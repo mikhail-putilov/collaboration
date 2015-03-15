@@ -1,7 +1,7 @@
 # coding=utf-8
 from twisted.internet import defer
 from twisted.protocols.amp import Command, Unicode, Float, Boolean
-from exceptions import NoTextAvailableException, PatchIsNotApplicableException
+from exceptions import NoTextAvailableException, PatchIsNotApplicableException, PatchIsNotApplicableException
 
 __author__ = 'snowy'
 
@@ -17,13 +17,13 @@ class Patch(Unicode):
 
 class ApplyPatchCommand(Command):
     arguments = [('patch', Patch()), ('timestamp', Float())]
+    requiresAnswer = False
+
+
+class TryApplyPatchCommand(Command):
+    arguments = [('patch', Patch()), ('timestamp', Float())]
     response = [('succeed', Boolean())]
-    default_succeed_response = defer.succeed({'succeed': True})
-    no_work_is_done_response = defer.succeed({'succeed': None, 'no_work_is_done': True})  # todo: review no work is done
     errors = {
-        PatchIsNotApplicableException: 'Патч не может быть применен',
-        UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review unicode
+        PatchIsNotApplicableException: 'Патч не может быть применен. '
+                                       'Сделайте пул, зарезолвите конфликты, потом сделайте пуш'
     }
-    requiresAnswer = True
-
-

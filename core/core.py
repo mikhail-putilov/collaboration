@@ -6,7 +6,7 @@
 __author__ = 'snowy'
 import logging
 
-from twisted.protocols.amp import CommandLocator, AMP, UnknownRemoteError
+from twisted.protocols.amp import CommandLocator, AMP
 from twisted.internet import defer
 from twisted.internet.endpoints import serverFromString, clientFromString
 from twisted.internet.protocol import Factory, ClientFactory, ServerFactory
@@ -66,17 +66,17 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         # add if recovery running then none
         if self.clientProtocol is None:
             self.logger.debug('client protocol is None')
-            return ApplyPatchCommand.no_work_is_done_response
+            return
 
         patches = self.dmp.patch_make(self.currentText, nextText)
         if not patches:
-            return ApplyPatchCommand.no_work_is_done_response
+            return
         timestamp = self.time_machine.get_current_timestamp()
         self._prepare_and_commit_on_local_changes(patches, nextText, timestamp)
         self.currentText = nextText
         serialized = self.dmp.patch_toText(patches)
         if not serialized:
-            return ApplyPatchCommand.no_work_is_done_response
+            return
         self.logger.debug('sending patch:\n<patch>\n%s</patch>', serialized)
 
         def _patch_rejected_case(failure):
@@ -102,6 +102,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
     def remote_applyPatch(self, patch, timestamp):
         """
         Применить патч в любом случае. Если патч подходит не идеально, то выполняется вначале RECOVERY.
+        Не является ApplyPatchCommand.responder (!) обязательно переопределять в потомке (!)
         :param patch: force-патч от координатора
         :param timestamp: время патча
         :rtype tuple of (response dict, sublime_commands)
@@ -112,13 +113,19 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         patchedText, result, commands = self.dmp.patch_apply(patch_objects, self.currentText)
         if False in result:
             # if failed then recovery
-            commands = self.start_recovery(patch_objects, timestamp)
-            return {'succeed': True}, commands
+            # if recovery failed then fetch latest correct version from the coordinator
+            try:
+                commands = self.start_recovery(patch_objects, timestamp)  # todo: if bad, get text from coordinator
+                return {'succeed': True}, commands
+            except:
+                self.logger.error("Cannot recovery! Trying to fetch latest correct version from the coordinator")
+                #  todo : fetch latest version
+                return {'succeed': False}, []
 
         before_text = self.currentText
         self._prepare_and_commit_on_remote_apply(patch_objects, patchedText, timestamp)
         self.currentText = patchedText
-        self.log_model_text(before_text)
+        self.log_before_after_model_text_msg(before_text)
 
         return {'succeed': True}, commands
 
@@ -141,7 +148,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         self.history.commit_with_rollback(forward, backward)
         return
 
-    def log_model_text(self, before_text):
+    def log_before_after_model_text_msg(self, before_text):
         self.logger.debug('\n<before.model>%s</before.model>\n<after.model>%s</after.model>', before_text,
                           self.currentText)
 
@@ -274,16 +281,6 @@ class Application(object):
         if self.clientProtocol:
             self.clientProtocol.transport.loseConnection()
         return d
-
-
-class TryApplyPatchCommand(Command):
-    arguments = [('patch', Patch()), ('timestamp', Float())]
-    response = [('succeed', Boolean())]
-    errors = {
-        PatchIsNotApplicableException: 'Патч не может быть применен. '
-                                       'Сделайте пул, зарезолвите конфликты, потом сделайте пуш',
-        UnicodeEncodeError: 'Unicode не поддерживается'  # todo: review unicode
-    }
 
 
 class CoordinatorLocatorDecorator(CommandLocator):

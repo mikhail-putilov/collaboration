@@ -85,15 +85,13 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         """
         if self.view.is_read_only():
             raise ViewIsReadOnlyException('View(id={0}) is read only. Cannot be modified'.format(self.view.id()))
-        before = misc.all_text_view(self.view)
-        respond, commands = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
-        assert before == misc.all_text_view(self.view)
+        response, commands = super(SublimeAwareAlgorithm, self).remote_applyPatch(patch, timestamp)
         self.logger.debug('starting view modifications:\n<before.view>%s</before.view>', all_text_view(self.view))
         edit = self.view.begin_edit()
         try:
             for sublime_command in commands:
                 self.process_sublime_command(edit, sublime_command)
-            return respond
+            return response
         finally:
             self.view.end_edit(edit)
             self.logger.debug('view modifications are ended:\n<after.view>%s</after.view>', all_text_view(self.view))
