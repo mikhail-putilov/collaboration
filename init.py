@@ -106,16 +106,18 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.WindowCommand):
             sublime.run_command('collaboration', {'listening': 'start', 'view_id': views[1].id()})
             logger.info('{0} collaboration inited {0}'.format('---*---'))
 
-        def _eb(failure):
-            logger.error(failure)
-            sublime.error_message("Couldn't connect two views with coordinator. See back log for more details.")
-            global registry
-            registry = {}# registry must be empty after fail. This may be due to error not in coordinator side
-            return None
-
         d_list.append(run_coordinator_server(initial_text=''))
         defer.DeferredList(d_list, fireOnOneErrback=True).addCallback(_cb).addCallback(_connected_cb) \
-            .addErrback(_eb)
+            .addErrback(_log_notify_del_registry, "Couldn't connect two views with coordinator. "
+                                                  "See back log for more details.")
+
+
+def _log_notify_del_registry(failure, errmsg):
+    logger.error(failure)
+    sublime.error_message(errmsg)
+    global registry
+    registry = {}  # registry must be empty after fail. This may be due to error not in coordinator side
+    return None
 
 
 class AcceptConnections(sublime_plugin.WindowCommand):
@@ -127,14 +129,17 @@ class AcceptConnections(sublime_plugin.WindowCommand):
         view = self.window.active_view()
         terminate_collaboration(view.id())
         initial_text = misc.all_text_view(view)
-        d_list = [run_server(view), run_coordinator_server(initial_text)]
+        d_list = [run_server(view), run_coordinator_server(initial_text=initial_text)]
 
         def _servers_up(_):
-            run_client(view, registry['coordinator'].connection_string)
-            logger.info(registry['coordinator'].connection_string)
-            sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()})
+            d = run_client(view, registry['coordinator'].connection_string)
+            logger.info("Waiting incoming connections: %s", registry['coordinator'].connection_string)
+            d.addCallback(lambda _: sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()}))
+            return d
 
-        defer.DeferredList(d_list).addCallback(_servers_up)
+        defer.DeferredList(d_list, fireOnOneErrback=True).addCallback(_servers_up) \
+            .addErrback(_log_notify_del_registry, "Couldn't start listening incoming connections. "
+                                                  "See back log for details.")
 
 
 class ListOfLocalCoordinators(sublime_plugin.WindowCommand):
@@ -199,7 +204,11 @@ def run_coordinator_server(initial_text):
     def _cb(client_connection_string):
         registry['coordinator'] = RegistryEntry(app, client_connection_string)
 
-    return app.setUpServerFromStr('tcp:13256').addCallback(_cb)
+    def _eb(failure):
+        if 'coordinator' in registry:
+            del registry['coordinator']
+        return failure
+    return app.setUpServerFromStr('tcp:13256').addCallback(_cb).addErrback(_eb)
 
 
 def connect_to_each_other(view1, view2):
