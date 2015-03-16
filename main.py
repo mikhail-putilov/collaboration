@@ -5,17 +5,10 @@
 """
 from itertools import takewhile, izip
 from twisted.protocols.amp import UnknownRemoteError
-
 from history import TimeMachine
 import init
-
-
-
-
-# noinspection PyUnresolvedReferences
 import sublime
 import logging
-# noinspection PyUnresolvedReferences
 from misc import ApplicationSpecificAdapter, all_text_view
 import misc
 
@@ -114,11 +107,13 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         :return: команды для sublime, которые изменяют view согласно измененной модели
         """
         self.recovering = True
-        rollforward_commands, rollback_commands, d1d3 = super(SublimeAwareAlgorithm, self).start_recovery(patch_objects,
-                                                                                                          timestamp)
-        self.currentText = d1d3
-        self.local_onTextChanged(misc.all_text_view(self.view))
-        self.recovering = False
+        try:
+            rollforward_commands, rollback_commands, d1d3 = super(SublimeAwareAlgorithm, self) \
+                .start_recovery(patch_objects, timestamp)
+            self.currentText = d1d3
+            self.local_onTextChanged(misc.all_text_view(self.view))
+        finally:
+            self.recovering = False
         rollback_commands.extend(rollforward_commands)
         return rollback_commands
 
@@ -127,7 +122,7 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
             self.history.clean()
             msg = 'You\'ve got inconsistent state, everything starts over again. Sorry for that.'
             self.logger.info(msg)
-            sublime.status_message(msg)
+            sublime.error_message(msg)
             return _
 
         def _eb(failure):
