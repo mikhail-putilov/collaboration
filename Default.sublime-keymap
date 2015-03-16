@@ -1,7 +1,8 @@
 [
   {
     "keys": ["alt+r"],
-    "command": "replay"
+    "command": "replay",
+    "args": {"text": "Привет, это Миша Путилов.\nПечатаю вам сообщение!"}
   },
   {
     "keys": ["alt+c"],

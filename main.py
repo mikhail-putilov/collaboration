@@ -5,8 +5,13 @@
 """
 from itertools import takewhile, izip
 from twisted.protocols.amp import UnknownRemoteError
+
 from history import TimeMachine
 import init
+
+
+
+
 # noinspection PyUnresolvedReferences
 import sublime
 import logging
@@ -91,7 +96,7 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         try:
             for sublime_command in commands:
                 self.process_sublime_command(edit, sublime_command)
-            return
+            return {}
         finally:
             self.view.end_edit(edit)
             self.logger.debug('view modifications are ended:\n<after.view>%s</after.view>', all_text_view(self.view))
@@ -118,8 +123,18 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         return rollback_commands
 
     def retry(self):
+        def _cb(_):
+            self.history.clean()
+            msg = 'You\'ve got inconsistent state, everything starts over again. Sorry for that.'
+            self.logger.info(msg)
+            sublime.status_message(msg)
+            return _
 
-        self.ownerApplication.init_first_text(self.clientProtocol)
+        def _eb(failure):
+            sublime.error_message('Everything went horribly wrong. See back log for details. Sorry for that.')
+            return failure
+
+        return self.ownerApplication.init_first_text(self.clientProtocol).addCallbacks(_cb, _eb)
 
     def process_sublime_command(self, edit, command):
         """

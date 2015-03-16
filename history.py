@@ -59,6 +59,10 @@ class FailedToApplyPatchSilentlyException(Exception):
     pass
 
 
+class HistoryInconsistentError(Exception):
+    pass
+
+
 class TimeMachine(object):
     def __init__(self, history_line, owner):
         """
@@ -108,6 +112,7 @@ class TimeMachine(object):
         Процедура RECOVERY.
         :param patch_objects: list [libs.dmp.diff_match_patch.patch_obj] Список патчей
         :param timestamp: временная метка
+        :raise HistoryInconsistentError
         :return tuple of ([rollforward_command], [rollback_command]) which can be applied to sublime's view
         """
         assert self.owner.name != 'Coordinator'
@@ -118,10 +123,15 @@ class TimeMachine(object):
         pop_stack = []
         rollback_commands = []
         d1d3 = None
-        while True:  # todo: what if there is no pop and match?
+        while True:
+            if len(self.history.rollback_history) == 0:
+                raise HistoryInconsistentError()
             # pop one commit, roll it back and try patch
             to_be_rolled_back, _ = self._pop_one_commit(pop_stack)
-            rollback_command = self._rollback(to_be_rolled_back.patch)
+            try:
+                rollback_command = self._rollback(to_be_rolled_back.patch)
+            except RollbackFailedException:
+                continue
             rollback_commands.extend(rollback_command)
             # try patch
             perfectly_patched_text = self._try_patch(patch_objects)

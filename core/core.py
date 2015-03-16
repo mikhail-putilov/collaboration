@@ -114,11 +114,10 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         if False in result:
             # if failed then recovery
             # if recovery failed then fetch latest correct version from the coordinator
-            # noinspection PyBroadException
             try:
                 commands = self.start_recovery(patch_objects, timestamp)
                 return commands
-            except:
+            except history.HistoryInconsistentError:
                 self.logger.error('Cannot recovery! Trying to fetch latest correct version from the coordinator')
                 self.retry()
                 return []
@@ -159,7 +158,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         return ret
 
     def retry(self):
-        raise NotImplementedError('This must be overridden')
+        raise NotImplementedError('This must be overridden')  # too bad this is due to horrible code design :(
 
 
 class NetworkApplicationConfig(object):
