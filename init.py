@@ -3,20 +3,16 @@
 Модуль начальной инициализации sublime плагина. Включает в себя в основном наследников sublime_plugin.TextCommand.
 Логически является специфичной sublime оберткой над main модулем.
 """
+__author__ = 'snowy'
 from twisted.internet import task, threads
 import main
 from misc import erase_view
 import misc
-
-__author__ = 'snowy'
-
 import logging
-# noinspection PyUnresolvedReferences
 import sublime
 import sublime_plugin
 from collections import namedtuple
 import twisted.internet.defer as defer
-
 from reactor import reactor
 
 logger = logging.getLogger(__name__)
@@ -68,6 +64,7 @@ def run_client(view, connection_str):
     def _cb(client_proto):
         logger.debug('%s has connected to %s', app.name, connection_str)
         return client_proto
+
     return app.connectAsClientFromStr(connection_str).addCallback(_cb).addErrback(_run_server_or_client_eb, view.id())
 
 
@@ -108,8 +105,8 @@ class ConnectTwoViewsWithCoordinatorCommand(sublime_plugin.WindowCommand):
 
         d_list.append(run_coordinator_server(initial_text=''))
         defer.DeferredList(d_list, fireOnOneErrback=True).addCallback(_cb).addCallback(_connected_cb) \
-            .addErrback(_log_notify_del_registry, "Couldn't connect two views with coordinator. "
-                                                  "See back log for more details.")
+            .addErrback(_log_notify_del_registry, 'Couldn\'t connect two views with coordinator. '
+                                                  'See back log for more details.')
 
 
 def _log_notify_del_registry(failure, errmsg):
@@ -133,13 +130,13 @@ class AcceptConnections(sublime_plugin.WindowCommand):
 
         def _servers_up(_):
             d = run_client(view, registry['coordinator'].connection_string)
-            logger.info("Waiting incoming connections: %s", registry['coordinator'].connection_string)
+            logger.info('Waiting incoming connections: %s', registry['coordinator'].connection_string)
             d.addCallback(lambda _: sublime.run_command('collaboration', {'listening': 'start', 'view_id': view.id()}))
             return d
 
         defer.DeferredList(d_list, fireOnOneErrback=True).addCallback(_servers_up) \
-            .addErrback(_log_notify_del_registry, "Couldn't start listening incoming connections. "
-                                                  "See back log for details.")
+            .addErrback(_log_notify_del_registry, 'Couldn\'t start listening incoming connections. '
+                                                  'See back log for details.')
 
 
 class ListOfLocalCoordinators(sublime_plugin.WindowCommand):
@@ -150,19 +147,17 @@ class ListOfLocalCoordinators(sublime_plugin.WindowCommand):
     def run(self):
         import libs.beacon as beacon
 
-        l = task.LoopingCall(lambda: misc.loading("Looking for coordinators {0}"))
-        l.start(0.1)
-        d = threads.deferToThread(beacon.find_all_servers, 12000, b"collaboration-sublime-text")
+        d = misc.loading_wrapper(threads.deferToThread(beacon.find_all_servers, 12000, b'collaboration-sublime-text'),
+                                 'Looking for coordinators {0}')
 
         def _found(res_list):
-            l.stop()
-            sublime.status_message("A list of available coordinators is retrieved" if len(
-                res_list) > 0 else "No coordinators answer your request. Try to connect with your bare hands.")
+            sublime.status_message('A list of available coordinators is retrieved' if len(
+                res_list) > 0 else 'No coordinators answer your request. Try to connect with your bare hands.')
             items = [str(item) for item in res_list]
 
             def on_done(index):
                 if index != -1:
-                    on_get_connection_str(self.window, "tcp:host={0}:port=13256".format(items[index]))
+                    on_get_connection_str(self.window, 'tcp:host={0}:port=13256'.format(items[index]))
 
             self.window.show_quick_panel(items, on_done)
 
@@ -176,7 +171,7 @@ class ConnectToCoordinator(sublime_plugin.WindowCommand):
 
     def run(self):
         on_done = lambda conn_str: on_get_connection_str(self.window, conn_str)
-        self.window.show_input_panel("connection string:", "tcp:host={}:port=13256", on_done, None, None)
+        self.window.show_input_panel('connection string:', 'tcp:host={}:port=13256', on_done, None, None)
 
 
 def on_get_connection_str(window, conn_str):
@@ -186,7 +181,7 @@ def on_get_connection_str(window, conn_str):
     def _eb(failure):
         if 'coordinator' in registry and registry['coordinator'].connection_string == conn_str:
             del registry['coordinator']
-        logger.error("Couldn't connect to %s. An error occurred: %s", conn_str, failure)
+        logger.error('Couldn\'t connect to %s. An error occurred: %s', conn_str, failure)
         return failure
 
     view = window.active_view()
@@ -208,6 +203,7 @@ def run_coordinator_server(initial_text):
         if 'coordinator' in registry:
             del registry['coordinator']
         return failure
+
     return app.setUpServerFromStr('tcp:13256').addCallback(_cb).addErrback(_eb)
 
 
@@ -231,8 +227,6 @@ class Collaboration(sublime_plugin.ApplicationCommand):
 
     def _get_task(self, view_id):
         if view_id not in self.view_id2task:
-            from twisted.internet import task
-
             _task = task.LoopingCall(main.run_every_second(view_id))
             self.view_id2task[view_id] = _task
         else:
@@ -259,7 +253,7 @@ class Collaboration(sublime_plugin.ApplicationCommand):
 
 
 def terminate_collaboration(view_id):
-    logger.info("Terminating collaboration for view with id=%s", view_id)
+    logger.info('Terminating collaboration for view with id=%s', view_id)
     assert Collaboration
     sublime.run_command('collaboration', {'listening': 'stop', 'view_id': view_id})
     if view_id in registry:

@@ -105,7 +105,7 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         Не является ApplyPatchCommand.responder (!) обязательно переопределять в потомке (!)
         :param patch: force-патч от координатора
         :param timestamp: время патча
-        :rtype tuple of (response dict, sublime_commands)
+        :rtype tuple of (sublime_commands)
         """
         self.logger.debug('remote patch applying:\n<patch>\n%s</patch>', patch)
         # serialize and try to patch
@@ -114,20 +114,21 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         if False in result:
             # if failed then recovery
             # if recovery failed then fetch latest correct version from the coordinator
+            # noinspection PyBroadException
             try:
-                commands = self.start_recovery(patch_objects, timestamp)  # todo: if bad, get text from coordinator
-                return {'succeed': True}, commands
+                commands = self.start_recovery(patch_objects, timestamp)
+                return commands
             except:
-                self.logger.error("Cannot recovery! Trying to fetch latest correct version from the coordinator")
-                #  todo : fetch latest version
-                return {'succeed': False}, []
+                self.logger.error('Cannot recovery! Trying to fetch latest correct version from the coordinator')
+                self.retry()
+                return []
 
         before_text = self.currentText
         self._prepare_and_commit_on_remote_apply(patch_objects, patchedText, timestamp)
         self.currentText = patchedText
         self.log_before_after_model_text_msg(before_text)
 
-        return {'succeed': True}, commands
+        return commands
 
     @GetTextCommand.responder
     def remote_getText(self):
@@ -156,6 +157,9 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         self.log_failed_apply_patch('\n'.join([str(patch) for patch in patch_objects]))
         ret = self.time_machine.start_recovery(patch_objects, timestamp)
         return ret
+
+    def retry(self):
+        raise NotImplementedError('This must be overridden')
 
 
 class NetworkApplicationConfig(object):

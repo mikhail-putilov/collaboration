@@ -1,7 +1,8 @@
 # coding=utf-8
-from twisted.internet import defer
 from twisted.protocols.amp import Command, Unicode, Float, Boolean
-from exceptions import NoTextAvailableException, PatchIsNotApplicableException, PatchIsNotApplicableException
+
+from exceptions import NoTextAvailableException, PatchIsNotApplicableException
+
 
 __author__ = 'snowy'
 
@@ -23,7 +24,5 @@ class ApplyPatchCommand(Command):
 class TryApplyPatchCommand(Command):
     arguments = [('patch', Patch()), ('timestamp', Float())]
     response = [('succeed', Boolean())]
-    errors = {
-        PatchIsNotApplicableException: 'Патч не может быть применен. '
-                                       'Сделайте пул, зарезолвите конфликты, потом сделайте пуш'
-    }
+    errors = {PatchIsNotApplicableException: 'Патч не может быть применен. '
+                                             'Сделайте пул, зарезолвите конфликты, потом сделайте пуш'}
