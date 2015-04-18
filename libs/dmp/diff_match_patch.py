@@ -1574,7 +1574,7 @@ class diff_match_patch:
           Two element Array, containing the new text and an array of boolean values.
         """
         if not patches:
-            return (text, [])
+            return (text, [], [])
 
         # Deep copy the patches so that no changes are made to originals.
         patches = self.patch_deepCopy(patches)

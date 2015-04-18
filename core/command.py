@@ -1,5 +1,5 @@
 # coding=utf-8
-from twisted.protocols.amp import Command, Unicode, Float, Boolean
+from twisted.protocols.amp import Command, Unicode, Float, Boolean, String
 
 from exceptions import NoTextAvailableException, PatchIsNotApplicableException
 
@@ -26,3 +26,8 @@ class TryApplyPatchCommand(Command):
     response = [('succeed', Boolean())]
     errors = {PatchIsNotApplicableException: 'Патч не может быть применен. '
                                              'Сделайте пул, зарезолвите конфликты, потом сделайте пуш'}
+
+
+class NeilClientCommand(Command):
+    arguments = [('patch', Patch()), ('from1', String())]
+    requiresAnswer = False

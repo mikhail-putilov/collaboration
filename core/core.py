@@ -36,10 +36,15 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         :type initialText: str Начальный текст
         :type history_line: history.HistoryLine
         """
+        self.start_neil_cycle = True
         self.name = name
         self.clientProtocol = clientProtocol
         self.currentText = initialText
+        self.client_text = initialText
+        self.client_shadow = initialText
         self.dmp = diff_match_patch()
+        self.strict_dmp = diff_match_patch()
+
         self.history = history_line
         self.time_machine = history.TimeMachine(history_line, self)
         self.logger = ApplicationSpecificAdapter(logger, {'name': name})
@@ -56,6 +61,45 @@ class DiffMatchPatchAlgorithm(CommandLocator):
         """
         self.logger.debug('text is currently replaced without any side-effects')
         self.currentText = text
+
+    @NeilClientCommand.responder
+    def neil_4a4b56a6b7(self, patch, from1):
+        self.logger.debug('remote patch applying from %s:\n<patch>\n%s</patch>', from1, patch)
+        # serialize and try to patch
+        patch_objects = self.strict_dmp.patch_fromText(patch)  # todo: strict
+        patched_shadow, result, _ = self.strict_dmp.patch_apply(patch_objects, self.client_shadow)
+        if False in result:
+            self.logger.error('stupid shadow is not strictly patchable')
+            return {}
+        self.client_shadow = patched_shadow
+        patched_client_text, result, commands = self.dmp.patch_apply(patch_objects, self.client_text)
+        self.client_text = patched_client_text
+        self.start_neil_cycle = True
+        return commands
+        # return commands
+
+    def neil_1a1b23(self, next_text):
+        """
+        Dual shadow method
+        :param next_text: новый клиент текст
+        :return: нихера
+        """
+        if not self.start_neil_cycle:
+            # self.logger.debug('not start_neil_cycle')
+            return
+
+        if self.clientProtocol is None:
+            self.logger.debug('client protocol is None')
+            return
+        self.client_text = next_text
+        diff = self.dmp.patch_make(self.client_shadow, self.client_text)
+        self.client_shadow = self.client_text
+
+        serialized = self.dmp.patch_toText(diff)
+        self.logger.debug('sending patch:\n<patch>\n%s</patch>', serialized)
+
+        self.start_neil_cycle = False
+        return self.clientProtocol.callRemote(NeilClientCommand, patch=serialized, from1=self.name)
 
     def local_onTextChanged(self, nextText):
         """
@@ -299,6 +343,7 @@ class CoordinatorLocatorDecorator(CommandLocator):
         # self.main_locator должен строго относиться к нарушению контекста патча.
         # Поэтому необходимо включить set_perfect_matching
         self.set_perfect_matching()
+        self.name = to_be_decorated_locator.name
         self.logger = ApplicationSpecificAdapter(logger, {'name': self.decorated_locator.name})
 
     @GetTextCommand.responder
@@ -315,6 +360,14 @@ class CoordinatorLocatorDecorator(CommandLocator):
         for peer in self.peers:
             peer.callRemote(ApplyPatchCommand, patch=patch, timestamp=timestamp)
         return {'succeed': True}
+
+    @NeilClientCommand.responder
+    def neil_4a4b56a6b7(self, patch, from1):
+        self.decorated_locator.neil_4a4b56a6b7(patch, from1)
+        self.decorated_locator.clientProtocol = self.peers[0]
+        self.decorated_locator.neil_1a1b23(self.decorated_locator.client_text)
+        self.logger.debug('client text=%s', self.decorated_locator.client_text)
+        return {}
 
     def add_incoming_connection(self, server_proto):
         assert hasattr(server_proto, 'callRemote'), 'clientProtocol должен иметь метод callRemote ' \
@@ -349,6 +402,7 @@ class CoordinatorApplication(Application):
         self.beacon.daemon = True
         self.locator = CoordinatorDiffMatchPatchAlgorithm(self.history_line, clientProtocol=self.clientProtocol,
                                                           name=name, initialText=initial_text)
+        self.locator.start_neil_cycle = False
 
     def _start_beacon(self):
         self.beacon.start()
@@ -396,15 +450,5 @@ class MultipleConnectionServerFactory(ServerFactory):
 
     def buildProtocol(self, addr):
         proto = Factory.buildProtocol(self, addr)
-        for prev_proto in self.already_proto:
-            assert isinstance(prev_proto.locator, CoordinatorLocatorDecorator), 'Каждый локатор должен быть ' \
-                                                                                'декорирован для задания своего ' \
-                                                                                'списка incoming_connections'
-            assert prev_proto.locator.decorated_locator is self.coordinator_locator, 'координирующий ' \
-                                                                                     'локатор должен быть один'
-            prev_proto.locator.add_incoming_connection(proto)
-            proto.locator.add_incoming_connection(prev_proto)
-
-        # add for the next protos
-        self.already_proto.append(proto)
+        proto.locator.add_incoming_connection(proto)
         return proto

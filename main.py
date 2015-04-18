@@ -72,6 +72,21 @@ class SublimeAwareAlgorithm(DiffMatchPatchAlgorithm):
         self.time_machine = TimeMachine(history_line, self)
         self.recovering = False
 
+    @NeilClientCommand.responder
+    def neil_4a4b56a6b7(self, patch, from1):
+        if self.view.is_read_only():
+            raise ViewIsReadOnlyException('View(id={0}) is read only. Cannot be modified'.format(self.view.id()))
+        commands = super(SublimeAwareAlgorithm, self).neil_4a4b56a6b7(patch, from1)
+        self.logger.debug('starting view modifications:\n<before.view>%s</before.view>', all_text_view(self.view))
+        edit = self.view.begin_edit()
+        try:
+            for sublime_command in commands:
+                self.process_sublime_command(edit, sublime_command)
+            return {}
+        finally:
+            self.view.end_edit(edit)
+            self.logger.debug('view modifications are ended:\n<after.view>%s</after.view>', all_text_view(self.view))
+
     @ApplyPatchCommand.responder
     def remote_applyPatch(self, patch, timestamp):
         """
@@ -203,6 +218,7 @@ def run_every_second(view_id):
         if app.algorithm.recovering:
             logger.warning('%s is recovering and cannot be scanned for new changes. This must not happen!', app.name)
             return
-        app.algorithm.local_onTextChanged(misc.all_text_view(app.view))
+        # app.algorithm.local_onTextChanged(misc.all_text_view(app.view))
+        app.algorithm.neil_1a1b23(misc.all_text_view(app.view))  # todo: remove?
 
     return closure

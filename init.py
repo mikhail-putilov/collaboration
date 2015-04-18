@@ -244,7 +244,7 @@ class Collaboration(sublime_plugin.ApplicationCommand):
 
         if listening == 'start':
             if not _task.running:
-                _task.start(1.0)
+                _task.start(5.0)
         elif listening == 'stop':
             if _task.running:
                 _task.stop()
