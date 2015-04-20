@@ -344,6 +344,7 @@ class CoordinatorLocatorDecorator(CommandLocator):
         # Поэтому необходимо включить set_perfect_matching
         self.set_perfect_matching()
         self.name = to_be_decorated_locator.name
+        self.client_shadow = str(to_be_decorated_locator.client_shadow)
         self.logger = ApplicationSpecificAdapter(logger, {'name': self.decorated_locator.name})
 
     @GetTextCommand.responder
@@ -363,10 +364,33 @@ class CoordinatorLocatorDecorator(CommandLocator):
 
     @NeilClientCommand.responder
     def neil_4a4b56a6b7(self, patch, from1):
-        self.decorated_locator.neil_4a4b56a6b7(patch, from1)
-        self.decorated_locator.clientProtocol = self.peers[0]
-        self.decorated_locator.neil_1a1b23(self.decorated_locator.client_text)
-        self.logger.debug('client text=%s', self.decorated_locator.client_text)
+        self.logger.debug('remote patch applying from %s:\n<patch>\n%s</patch>', from1, patch)
+        # serialize and try to patch
+        dmp = self.decorated_locator.dmp
+        patch_objects = dmp.patch_fromText(patch)
+        patched_shadow, result, _ = dmp.patch_apply(patch_objects, self.client_shadow)
+        if False in result:
+            self.logger.error('stupid shadow is not strictly patchable')
+            return {}
+        self.client_shadow = patched_shadow
+        self.decorated_locator.dmp.Match_Threshold = 0.5
+        patched_client_text, result, commands = dmp.patch_apply(patch_objects, self.decorated_locator.client_text)
+        self.decorated_locator.dmp.Match_Threshold = 0.0
+        self.decorated_locator.client_text = patched_client_text
+
+        next_text = self.decorated_locator.client_text
+        self.clientProtocol = self.peers[0]
+        if self.clientProtocol is None:
+            self.logger.debug('client protocol is None')
+            return
+        self.decorated_locator.client_text = next_text
+        diff = dmp.patch_make(self.client_shadow, self.decorated_locator.client_text)
+        self.client_shadow = self.decorated_locator.client_text
+
+        serialized = dmp.patch_toText(diff)
+        self.logger.debug('sending patch:\n<patch>\n%s</patch>', serialized)
+
+        self.clientProtocol.callRemote(NeilClientCommand, patch=serialized, from1=self.name)
         return {}
 
     def add_incoming_connection(self, server_proto):
